@@ -1,0 +1,80 @@
+create table if not exists empleados (
+  id_empleado text primary key,
+  nombre text not null,
+  activo boolean default true,
+  fecha_creacion timestamptz default now()
+);
+
+create table if not exists marcaciones_detalle (
+  id bigint generated always as identity primary key,
+  id_empleado text not null references empleados(id_empleado),
+  fecha date not null,
+  punto_venta text,
+  actividad text,
+  hora_inicio text,
+  hora_salida text,
+  tiempo_transcurrido_min numeric,
+  marcacion_abierta boolean default false,
+  periodo text not null,
+  fecha_carga timestamptz default now(),
+  unique (id_empleado, fecha, hora_inicio, punto_venta)
+);
+create index if not exists idx_marcaciones_periodo on marcaciones_detalle(periodo);
+create index if not exists idx_marcaciones_empleado on marcaciones_detalle(id_empleado);
+
+create table if not exists asistencia_resumen_diario (
+  id bigint generated always as identity primary key,
+  id_empleado text not null references empleados(id_empleado),
+  fecha date not null,
+  periodo text not null,
+  primer_checkin text,
+  ultimo_checkout text,
+  minutos_tardanza integer default 0,
+  clasificacion_puntualidad text,
+  minutos_descanso_total integer default 0,
+  minutos_exceso_descanso integer default 0,
+  alerta_exceso_descanso boolean default false,
+  minutos_pdv integer default 0,
+  minutos_traslado integer default 0,
+  pdvs_unicos_visitados integer default 0,
+  lista_pdvs text,
+  tiene_marcacion_abierta boolean default false,
+  fecha_calculo timestamptz default now(),
+  unique (id_empleado, fecha)
+);
+create index if not exists idx_resumen_periodo on asistencia_resumen_diario(periodo);
+create index if not exists idx_resumen_empleado on asistencia_resumen_diario(id_empleado);
+
+create table if not exists periodos_cargados (
+  id bigint generated always as identity primary key,
+  periodo text unique not null,
+  nombre_archivo_original text,
+  fecha_carga timestamptz default now(),
+  filas_procesadas integer default 0,
+  empleados_afectados integer default 0
+);
+
+create table if not exists configuracion (
+  clave text primary key,
+  valor text not null,
+  descripcion text
+);
+
+insert into configuracion (clave, valor, descripcion) values
+  ('hora_entrada_teorica', '08:00', 'Hora teórica de entrada (HH:MM)'),
+  ('tolerancia_min', '10', 'Minutos de tolerancia antes de marcar tardanza'),
+  ('tardanza_leve_max_min', '15', 'Límite superior (min) para clasificar como Tardanza Leve'),
+  ('descanso_permitido_min', '60', 'Minutos de descanso permitidos por día')
+on conflict (clave) do nothing;
+
+alter table empleados enable row level security;
+alter table marcaciones_detalle enable row level security;
+alter table asistencia_resumen_diario enable row level security;
+alter table periodos_cargados enable row level security;
+alter table configuracion enable row level security;
+
+create policy "acceso_interno_empleados" on empleados for all using (true) with check (true);
+create policy "acceso_interno_marcaciones" on marcaciones_detalle for all using (true) with check (true);
+create policy "acceso_interno_resumen" on asistencia_resumen_diario for all using (true) with check (true);
+create policy "acceso_interno_periodos" on periodos_cargados for all using (true) with check (true);
+create policy "acceso_interno_config" on configuracion for all using (true) with check (true);

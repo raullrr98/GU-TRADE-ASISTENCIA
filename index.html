@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GU TRADE · Control de Asistencia y Rutas</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div class="app-layout">
+
+  <!-- RIEL LATERAL — "manifiesto" -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">GU</span>
+      <div class="brand-text">
+        <div class="brand-name">TRADE</div>
+        <div class="brand-sub">Asistencia &amp; Rutas</div>
+      </div>
+    </div>
+
+    <details class="rail-panel" open>
+      <summary>01 — Cargar manifiesto</summary>
+      <div class="rail-body">
+        <input type="file" id="fileInput" accept=".xlsx" />
+        <label class="eyebrow">Período (opcional)</label>
+        <input type="text" id="periodoManual" placeholder="AAAA-MM" />
+        <button id="procesarBtn" class="btn-flag" disabled>Procesar archivo</button>
+        <div id="uploadStatus" class="status-msg"></div>
+      </div>
+    </details>
+
+    <details class="rail-panel">
+      <summary>02 — Reglas de negocio</summary>
+      <div class="rail-body">
+        <label class="eyebrow">Hora entrada teórica</label>
+        <input type="text" id="cfgHoraEntrada" placeholder="08:00" />
+        <label class="eyebrow">Tolerancia (min)</label>
+        <input type="number" id="cfgTolerancia" min="0" />
+        <label class="eyebrow">Máx. tardanza leve (min)</label>
+        <input type="number" id="cfgTardanzaLeve" min="1" />
+        <label class="eyebrow">Descanso permitido (min)</label>
+        <input type="number" id="cfgDescanso" min="0" />
+        <button id="guardarCfgBtn" class="btn-ghost">Guardar y recalcular</button>
+        <div id="cfgStatus" class="status-msg"></div>
+      </div>
+    </details>
+
+    <details class="rail-panel" open>
+      <summary>03 — Período</summary>
+      <div class="rail-body">
+        <div class="radio-group" id="modoVistaGroup">
+          <label><input type="radio" name="modoVista" value="actual" checked /> Mes actual</label>
+          <label><input type="radio" name="modoVista" value="especifico" /> Mes específico</label>
+          <label><input type="radio" name="modoVista" value="comparativa" /> Comparativa</label>
+        </div>
+        <select id="periodoSelect" class="hidden"></select>
+        <div id="periodoMultiWrap" class="hidden">
+          <select id="periodoMulti" multiple size="5"></select>
+          <span class="eyebrow muted">Ctrl/Cmd + clic para varios</span>
+        </div>
+      </div>
+    </details>
+
+    <button id="borrarDatosBtn" class="btn-text">Borrar todos los datos locales</button>
+    <p class="rail-footnote">Los datos se guardan solo en este navegador (IndexedDB). No se comparten entre equipos.</p>
+  </aside>
+
+  <!-- CONTENIDO PRINCIPAL -->
+  <main class="main-content">
+    <header class="board-header">
+      <div>
+        <div class="eyebrow">Tablero de operación</div>
+        <h1>Control de Asistencia y Gestión de Rutas PDV</h1>
+      </div>
+      <div id="relojHeader" class="clock mono"></div>
+    </header>
+
+    <div id="emptyState" class="empty-state">
+      <div class="empty-mark">＋</div>
+      <p>Carga tu primer Excel mensual desde <strong>01 — Cargar manifiesto</strong> para empezar.</p>
+    </div>
+
+    <div id="dashboardContent" class="hidden">
+
+      <section class="filters-row">
+        <div class="filter-item">
+          <label class="eyebrow">Colaborador</label>
+          <select id="filtroEmpleado" multiple size="1"></select>
+        </div>
+        <div class="filter-item">
+          <label class="eyebrow">Desde</label>
+          <input type="date" id="filtroFechaDesde" />
+        </div>
+        <div class="filter-item">
+          <label class="eyebrow">Hasta</label>
+          <input type="date" id="filtroFechaHasta" />
+        </div>
+        <div class="filter-item">
+          <label class="eyebrow">Estado</label>
+          <select id="filtroEstado" multiple size="1"></select>
+        </div>
+      </section>
+
+      <section class="kpi-row" id="kpiRow"></section>
+
+      <section class="charts-grid">
+        <div class="chart-panel">
+          <h3 class="eyebrow">Top reincidentes en tardanzas</h3>
+          <canvas id="chartRanking"></canvas>
+        </div>
+        <div class="chart-panel">
+          <h3 class="eyebrow">Evolución diaria: puntualidad vs tardanzas</h3>
+          <canvas id="chartEvolucion"></canvas>
+        </div>
+        <div class="chart-panel">
+          <h3 class="eyebrow">Distribución del tiempo de trabajo</h3>
+          <canvas id="chartDistribucion"></canvas>
+        </div>
+        <div class="chart-panel">
+          <h3 class="eyebrow">Tendencia mensual histórica</h3>
+          <canvas id="chartTendencia"></canvas>
+          <p class="chart-empty muted">Carga al menos 2 meses para ver la tendencia.</p>
+        </div>
+      </section>
+
+      <section class="ledger-section">
+        <h2 class="eyebrow">Bitácora diaria de auditoría</h2>
+        <div class="table-wrap">
+          <table id="tablaAuditoria">
+            <thead>
+              <tr>
+                <th>Colaborador</th><th>Fecha</th><th>Entrada</th><th>Salida</th>
+                <th>Estado</th><th>Tardanza</th><th>Descanso</th><th>PDVs</th><th>Ruta del día</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="ledger-section export-section">
+        <h2 class="eyebrow">Exportación de reportes</h2>
+        <div class="export-grid">
+          <div class="export-card">
+            <h3>Excel consolidado</h3>
+            <p class="muted small">Resumen ejecutivo · Detalle diario · Inconsistencias · Marcaciones.</p>
+            <button id="exportExcelBtn" class="btn-flag">Descargar Excel</button>
+          </div>
+          <div class="export-card">
+            <h3>Ficha PDF diaria</h3>
+            <input type="date" id="fechaPdf" />
+            <button id="exportPdfBtn" class="btn-flag">Descargar PDF</button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script src="db.js"></script>
+<script src="etl.js"></script>
+<script src="businessLogic.js"></script>
+<script src="reportsClient.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

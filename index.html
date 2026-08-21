@@ -1,80 +1,1336 @@
-create table if not exists empleados (
-  id_empleado text primary key,
-  nombre text not null,
-  activo boolean default true,
-  fecha_creacion timestamptz default now()
-);
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Control de Asistencia y Rutas PDV</title>
 
-create table if not exists marcaciones_detalle (
-  id bigint generated always as identity primary key,
-  id_empleado text not null references empleados(id_empleado),
-  fecha date not null,
-  punto_venta text,
-  actividad text,
-  hora_inicio text,
-  hora_salida text,
-  tiempo_transcurrido_min numeric,
-  marcacion_abierta boolean default false,
-  periodo text not null,
-  fecha_carga timestamptz default now(),
-  unique (id_empleado, fecha, hora_inicio, punto_venta)
-);
-create index if not exists idx_marcaciones_periodo on marcaciones_detalle(periodo);
-create index if not exists idx_marcaciones_empleado on marcaciones_detalle(id_empleado);
+<!-- Librerías desde CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 
-create table if not exists asistencia_resumen_diario (
-  id bigint generated always as identity primary key,
-  id_empleado text not null references empleados(id_empleado),
-  fecha date not null,
-  periodo text not null,
-  primer_checkin text,
-  ultimo_checkout text,
-  minutos_tardanza integer default 0,
-  clasificacion_puntualidad text,
-  minutos_descanso_total integer default 0,
-  minutos_exceso_descanso integer default 0,
-  alerta_exceso_descanso boolean default false,
-  minutos_pdv integer default 0,
-  minutos_traslado integer default 0,
-  pdvs_unicos_visitados integer default 0,
-  lista_pdvs text,
-  tiene_marcacion_abierta boolean default false,
-  fecha_calculo timestamptz default now(),
-  unique (id_empleado, fecha)
-);
-create index if not exists idx_resumen_periodo on asistencia_resumen_diario(periodo);
-create index if not exists idx_resumen_empleado on asistencia_resumen_diario(id_empleado);
+<style>
+:root {
+  --azul: #2E5090;
+  --azul-claro: #eaf0fb;
+  --verde: #58D68D;
+  --verde-suave: #D5F5E3;
+  --amarillo-suave: #FDEBD0;
+  --rojo-suave: #FADBD8;
+  --gris-borde: #e2e6ee;
+  --gris-texto: #5a6472;
+  --fondo: #f6f8fc;
+}
 
-create table if not exists periodos_cargados (
-  id bigint generated always as identity primary key,
-  periodo text unique not null,
-  nombre_archivo_original text,
-  fecha_carga timestamptz default now(),
-  filas_procesadas integer default 0,
-  empleados_afectados integer default 0
-);
+* { box-sizing: border-box; }
 
-create table if not exists configuracion (
-  clave text primary key,
-  valor text not null,
-  descripcion text
-);
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--fondo);
+  color: #1c2430;
+}
 
-insert into configuracion (clave, valor, descripcion) values
-  ('hora_entrada_teorica', '08:00', 'Hora teórica de entrada (HH:MM)'),
-  ('tolerancia_min', '10', 'Minutos de tolerancia antes de marcar tardanza'),
-  ('tardanza_leve_max_min', '15', 'Límite superior (min) para clasificar como Tardanza Leve'),
-  ('descanso_permitido_min', '60', 'Minutos de descanso permitidos por día')
-on conflict (clave) do nothing;
+.hidden { display: none !important; }
+.muted { color: var(--gris-texto); }
+.small { font-size: 0.82rem; }
+.error-text { color: #c0392b; font-size: 0.85rem; }
 
-alter table empleados enable row level security;
-alter table marcaciones_detalle enable row level security;
-alter table asistencia_resumen_diario enable row level security;
-alter table periodos_cargados enable row level security;
-alter table configuracion enable row level security;
+.overlay {
+  position: fixed; inset: 0; background: rgba(20, 30, 50, 0.55);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+.setup-card {
+  background: white; padding: 2rem; border-radius: 12px; width: 420px;
+  max-width: 90vw; box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+}
+.setup-card h2 { margin-top: 0; color: var(--azul); }
+.setup-card label { display: block; margin: 0.8rem 0 0.3rem; font-weight: 600; font-size: 0.85rem; }
+.setup-card input { width: 100%; padding: 0.55rem; border: 1px solid var(--gris-borde); border-radius: 6px; }
+.setup-card code { background: var(--azul-claro); padding: 1px 5px; border-radius: 4px; }
 
-create policy "acceso_interno_empleados" on empleados for all using (true) with check (true);
-create policy "acceso_interno_marcaciones" on marcaciones_detalle for all using (true) with check (true);
-create policy "acceso_interno_resumen" on asistencia_resumen_diario for all using (true) with check (true);
-create policy "acceso_interno_periodos" on periodos_cargados for all using (true) with check (true);
-create policy "acceso_interno_config" on configuracion for all using (true) with check (true);
+.app-layout { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: 300px; background: white; border-right: 1px solid var(--gris-borde);
+  padding: 1.2rem; display: flex; flex-direction: column; gap: 0.6rem;
+  flex-shrink: 0;
+}
+.logo { font-size: 1.2rem; color: var(--azul); margin: 0 0 0.5rem; }
+
+.panel {
+  border: 1px solid var(--gris-borde); border-radius: 8px; padding: 0.4rem 0.7rem;
+}
+.panel summary { cursor: pointer; font-weight: 600; padding: 0.4rem 0; }
+.panel-body { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.4rem 0 0.6rem; }
+.panel-body input[type="text"], .panel-body input[type="number"], .panel-body select {
+  padding: 0.45rem; border: 1px solid var(--gris-borde); border-radius: 6px; width: 100%;
+}
+.panel-body label.small { margin-bottom: -0.2rem; font-weight: 600; color: var(--gris-texto); }
+
+.radio-group { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.9rem; }
+
+.btn-primary, .btn-secondary, .btn-link {
+  cursor: pointer; border-radius: 6px; padding: 0.55rem 0.9rem; font-weight: 600; font-size: 0.88rem;
+  border: none;
+}
+.btn-primary { background: var(--azul); color: white; }
+.btn-primary:disabled { background: #a9b6cf; cursor: not-allowed; }
+.btn-secondary { background: var(--azul-claro); color: var(--azul); }
+.btn-link { background: none; color: var(--azul); text-decoration: underline; margin-top: auto; }
+
+.status-msg { font-size: 0.82rem; min-height: 1.1em; }
+.status-msg.ok { color: #1e8449; }
+.status-msg.error { color: #c0392b; }
+
+.main-content { flex: 1; padding: 1.4rem 1.8rem; overflow-x: auto; }
+.main-header h1 { font-size: 1.5rem; color: var(--azul); margin: 0 0 1.2rem; }
+
+.empty-state {
+  background: white; border: 1px dashed var(--gris-borde); border-radius: 10px;
+  padding: 3rem; text-align: center; color: var(--gris-texto);
+}
+
+.filters-row {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.9rem; margin-bottom: 1.2rem;
+}
+.filter-item label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--gris-texto); margin-bottom: 0.25rem; }
+.filter-item select, .filter-item input {
+  width: 100%; padding: 0.45rem; border: 1px solid var(--gris-borde); border-radius: 6px;
+}
+
+.kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.9rem; margin-bottom: 1.4rem; }
+.kpi-card {
+  background: white; border-radius: 10px; padding: 1rem 1.1rem; border: 1px solid var(--gris-borde);
+}
+.kpi-card .kpi-label { font-size: 0.78rem; color: var(--gris-texto); font-weight: 600; }
+.kpi-card .kpi-value { font-size: 1.6rem; font-weight: 700; color: var(--azul); margin-top: 0.2rem; }
+
+.charts-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.4rem;
+}
+.chart-card {
+  background: white; border-radius: 10px; padding: 1rem; border: 1px solid var(--gris-borde);
+  height: 320px; display: flex; flex-direction: column;
+}
+.chart-card h3 { margin: 0 0 0.6rem; font-size: 0.95rem; }
+.chart-card canvas { flex: 1; max-height: 260px; }
+
+.panel-section {
+  background: white; border-radius: 10px; padding: 1.2rem; border: 1px solid var(--gris-borde);
+  margin-bottom: 1.4rem;
+}
+.panel-section h2 { margin-top: 0; font-size: 1.05rem; color: var(--azul); }
+
+.table-wrap { overflow-x: auto; max-height: 420px; overflow-y: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th, td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--gris-borde); text-align: left; white-space: nowrap; }
+thead th { background: var(--azul); color: white; position: sticky; top: 0; }
+
+tr.row-rojo { background: var(--rojo-suave); }
+tr.row-amarillo { background: var(--amarillo-suave); }
+tr.row-verde { background: var(--verde-suave); }
+
+.export-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.export-card { border: 1px solid var(--gris-borde); border-radius: 8px; padding: 1rem; }
+.export-card input { margin-bottom: 0.6rem; padding: 0.4rem; border: 1px solid var(--gris-borde); border-radius: 6px; }
+
+@media (max-width: 900px) {
+  .app-layout { flex-direction: column; }
+  .sidebar { width: 100%; }
+  .filters-row, .kpi-row, .charts-grid, .export-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div id="setupOverlay" class="overlay hidden">
+  <div class="setup-card">
+    <h2>📍 Conectar con Supabase</h2>
+    <p class="muted">Pega los datos de tu proyecto (Supabase → Project Settings → API). Se guardan solo en este navegador.</p>
+    <label>Project URL</label>
+    <input id="setupUrl" type="text" placeholder="https://xxxxxxxx.supabase.co" />
+    <label>Anon public key</label>
+    <input id="setupKey" type="text" placeholder="eyJhbGciOi..." />
+    <button id="setupSaveBtn" class="btn-primary">Guardar y conectar</button>
+    <p id="setupError" class="error-text hidden"></p>
+    <p class="muted small">¿Aún no creaste las tablas? Ejecuta primero <code>schema.sql</code> en el SQL Editor de Supabase.</p>
+  </div>
+</div>
+
+<div class="app-layout">
+
+  <aside class="sidebar">
+    <h1 class="logo">📍 Asistencia PDV</h1>
+
+    <details class="panel" open>
+      <summary>📤 Cargar Excel mensual</summary>
+      <div class="panel-body">
+        <input type="file" id="fileInput" accept=".xlsx" />
+        <label class="small">Confirmar período (opcional, YYYY-MM)</label>
+        <input type="text" id="periodoManual" placeholder="ej. 2026-08" />
+        <button id="procesarBtn" class="btn-primary" disabled>Procesar archivo</button>
+        <div id="uploadStatus" class="status-msg"></div>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>⚙️ Parámetros de negocio</summary>
+      <div class="panel-body">
+        <label class="small">Hora teórica de entrada</label>
+        <input type="text" id="cfgHoraEntrada" placeholder="08:00" />
+        <label class="small">Tolerancia (min)</label>
+        <input type="number" id="cfgTolerancia" min="0" />
+        <label class="small">Máx. Tardanza Leve (min)</label>
+        <input type="number" id="cfgTardanzaLeve" min="1" />
+        <label class="small">Descanso permitido (min)</label>
+        <input type="number" id="cfgDescanso" min="0" />
+        <button id="guardarCfgBtn" class="btn-secondary">Guardar y recalcular histórico</button>
+        <div id="cfgStatus" class="status-msg"></div>
+      </div>
+    </details>
+
+    <details class="panel" open>
+      <summary>🗓️ Período</summary>
+      <div class="panel-body">
+        <div class="radio-group" id="modoVistaGroup">
+          <label><input type="radio" name="modoVista" value="actual" checked /> Mes Actual</label>
+          <label><input type="radio" name="modoVista" value="especifico" /> Mes Específico</label>
+          <label><input type="radio" name="modoVista" value="comparativa" /> Comparativa</label>
+        </div>
+        <select id="periodoSelect" class="hidden"></select>
+        <div id="periodoMultiWrap" class="hidden">
+          <select id="periodoMulti" multiple size="5"></select>
+          <span class="small muted">Ctrl/Cmd + clic para elegir varios</span>
+        </div>
+      </div>
+    </details>
+
+    <button id="cambiarConexionBtn" class="btn-link">Cambiar conexión Supabase</button>
+  </aside>
+
+  <main class="main-content">
+    <header class="main-header">
+      <h1>Dashboard de Control de Asistencia y Gestión de Rutas en PDVs</h1>
+    </header>
+
+    <div id="emptyState" class="empty-state">
+      <p>👈 Carga tu primer archivo Excel mensual desde el panel lateral para comenzar.</p>
+    </div>
+
+    <div id="dashboardContent" class="hidden">
+
+      <section class="filters-row">
+        <div class="filter-item">
+          <label>Colaborador</label>
+          <select id="filtroEmpleado" multiple size="1"></select>
+        </div>
+        <div class="filter-item">
+          <label>Desde</label>
+          <input type="date" id="filtroFechaDesde" />
+        </div>
+        <div class="filter-item">
+          <label>Hasta</label>
+          <input type="date" id="filtroFechaHasta" />
+        </div>
+        <div class="filter-item">
+          <label>Estado</label>
+          <select id="filtroEstado" multiple size="1"></select>
+        </div>
+      </section>
+
+      <section class="kpi-row" id="kpiRow"></section>
+
+      <section class="charts-grid">
+        <div class="chart-card">
+          <h3>🏆 Top Reincidentes en Tardanzas</h3>
+          <canvas id="chartRanking"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>📈 Evolución Diaria: Puntualidad vs Tardanzas</h3>
+          <canvas id="chartEvolucion"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>⏱️ Distribución del Tiempo de Trabajo</h3>
+          <canvas id="chartDistribucion"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>📅 Tendencia Mensual Histórica</h3>
+          <canvas id="chartTendencia"></canvas>
+        </div>
+      </section>
+
+      <section class="panel-section">
+        <h2>🚦 Tabla de Auditoría Diaria</h2>
+        <div class="table-wrap">
+          <table id="tablaAuditoria">
+            <thead>
+              <tr>
+                <th>Colaborador</th><th>Fecha</th><th>Check-in</th><th>Check-out</th>
+                <th>Estado</th><th>Tardanza (min)</th><th>Descanso (min)</th>
+                <th>Exceso Descanso</th><th>PDVs Únicos</th><th>Abierta</th><th>Ruta</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel-section export-section">
+        <h2>📤 Exportación de Reportes</h2>
+        <div class="export-grid">
+          <div class="export-card">
+            <h3>Excel Consolidado</h3>
+            <p class="small muted">3 hojas: Resumen Ejecutivo, Detalle Diario, Inconsistencias.</p>
+            <button id="exportExcelBtn" class="btn-primary">Generar y Descargar Excel</button>
+          </div>
+          <div class="export-card">
+            <h3>Ficha PDF Diaria</h3>
+            <input type="date" id="fechaPdf" />
+            <button id="exportPdfBtn" class="btn-primary">Generar y Descargar PDF</button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script>
+// ============================================================================
+// etl.js — Lectura y limpieza del Excel "en bruto" de marcaciones
+// ============================================================================
+
+const COLUMN_ALIASES = {
+  id_empleado: ["id de persona de interes", "id persona de interes", "id empleado", "cedula", "documento", "id"],
+  nombre: ["nombre de persona de interes", "nombre persona de interes", "nombre", "colaborador"],
+  punto_venta: ["punto de venta", "pdv", "sucursal", "ubicacion"],
+  actividad: ["actividad", "tipo de actividad", "tarea"],
+  fecha: ["fecha", "dia"],
+  hora_inicio: ["hora inicio", "hora de inicio", "hora entrada"],
+  hora_salida: ["hora salida", "hora de salida", "hora fin"],
+  tiempo_transcurrido: ["tiempo transcurrido", "duracion", "tiempo"],
+};
+
+function normalizarTexto(txt) {
+  if (typeof txt !== "string") return "";
+  let t = txt.trim().toLowerCase();
+  const reemplazos = { á: "a", é: "e", í: "i", ó: "o", ú: "u", ñ: "n" };
+  for (const [a, b] of Object.entries(reemplazos)) t = t.split(a).join(b);
+  return t.replace(/\s+/g, " ");
+}
+
+function mapearColumnas(columnas) {
+  const normalizados = columnas.map((c) => [c, normalizarTexto(c)]);
+  const mapeo = {};
+  for (const [estandar, aliasList] of Object.entries(COLUMN_ALIASES)) {
+    let encontrado = null;
+    for (const [colOriginal, colNorm] of normalizados) {
+      if (aliasList.includes(colNorm) || aliasList.some((a) => colNorm.includes(a))) {
+        encontrado = colOriginal;
+        break;
+      }
+    }
+    if (encontrado) mapeo[estandar] = encontrado;
+  }
+  const faltantes = ["id_empleado", "nombre", "fecha", "hora_inicio"].filter((k) => !mapeo[k]);
+  if (faltantes.length) {
+    throw new Error(
+      `No se pudieron identificar columnas obligatorias en el Excel: ${faltantes.join(", ")}. ` +
+        `Columnas disponibles: ${columnas.join(", ")}`
+    );
+  }
+  return mapeo;
+}
+
+function limpiarString(valor) {
+  if (valor === null || valor === undefined || valor === "") return null;
+  return String(valor).trim();
+}
+
+function parsearFecha(valor) {
+  if (valor === null || valor === undefined || valor === "") return null;
+
+  if (typeof valor === "number") {
+    const fecha = XLSX.SSF.parse_date_code(valor);
+    if (!fecha) return null;
+    return `${fecha.y.toString().padStart(4, "0")}-${String(fecha.m).padStart(2, "0")}-${String(fecha.d).padStart(2, "0")}`;
+  }
+
+  const str = String(valor).trim();
+  let m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (m) {
+    let [, d, mo, y] = m;
+    d = parseInt(d, 10);
+    mo = parseInt(mo, 10);
+    y = parseInt(y, 10);
+    if (y < 100) y += 2000;
+    return `${y.toString().padStart(4, "0")}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) {
+    const [, y, mo, d] = m;
+    return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  return null;
+}
+
+function horaATexto(valor) {
+  if (valor === null || valor === undefined || valor === "") return null;
+  if (typeof valor === "string") {
+    const v = valor.trim();
+    if (["-", "", "N/A", "nan"].includes(v)) return null;
+    return v;
+  }
+  if (typeof valor === "number") {
+    const totalMin = Math.round(valor * 24 * 60);
+    const h = Math.floor(totalMin / 60) % 24;
+    const m = totalMin % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  }
+  if (valor instanceof Date) {
+    return `${String(valor.getHours()).padStart(2, "0")}:${String(valor.getMinutes()).padStart(2, "0")}`;
+  }
+  return String(valor).trim();
+}
+
+function duracionAMinutos(valor) {
+  if (valor === null || valor === undefined || valor === "") return null;
+  if (typeof valor === "string") {
+    const v = valor.trim();
+    if (["-", "", "N/A", "nan"].includes(v)) return null;
+    const m = v.match(/^(\d{1,3}):(\d{2})(:\d{2})?$/);
+    if (m) return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    const num = parseFloat(v);
+    return isNaN(num) ? null : num;
+  }
+  if (typeof valor === "number") {
+    return Math.round(valor * 24 * 60);
+  }
+  return null;
+}
+
+function leerYLimpiarExcel(arrayBuffer, hojaPreferida = "actividad") {
+  const wb = XLSX.read(arrayBuffer, { type: "array", cellDates: false });
+  const hojaReal =
+    wb.SheetNames.find((s) => normalizarTexto(s) === hojaPreferida) || wb.SheetNames[0];
+  const ws = wb.Sheets[hojaReal];
+  const rawRows = XLSX.utils.sheet_to_json(ws, { defval: null, raw: true });
+
+  if (!rawRows.length) return [];
+
+  const columnas = Object.keys(rawRows[0]);
+  const mapeo = mapearColumnas(columnas);
+
+  const filas = [];
+  for (const row of rawRows) {
+    const id_empleado = limpiarString(row[mapeo.id_empleado]);
+    const fecha = parsearFecha(row[mapeo.fecha]);
+    if (!id_empleado || !fecha) continue;
+
+    const nombre = limpiarString(row[mapeo.nombre]);
+    const punto_venta = mapeo.punto_venta ? limpiarString(row[mapeo.punto_venta]) : null;
+    const actividad = mapeo.actividad ? limpiarString(row[mapeo.actividad]) || "PDV" : "PDV";
+    const hora_inicio = horaATexto(row[mapeo.hora_inicio]);
+    const hora_salida = mapeo.hora_salida ? horaATexto(row[mapeo.hora_salida]) : null;
+    const tiempo_transcurrido_min = mapeo.tiempo_transcurrido
+      ? duracionAMinutos(row[mapeo.tiempo_transcurrido])
+      : null;
+
+    const [y, mo] = fecha.split("-");
+    filas.push({
+      id_empleado,
+      nombre,
+      punto_venta,
+      actividad,
+      fecha,
+      hora_inicio,
+      hora_salida,
+      tiempo_transcurrido_min,
+      marcacion_abierta: hora_salida === null,
+      periodo: `${y}-${mo}`,
+    });
+  }
+  return filas;
+}
+
+function detectarPeriodo(filas) {
+  if (!filas.length) return null;
+  const conteo = {};
+  for (const f of filas) conteo[f.periodo] = (conteo[f.periodo] || 0) + 1;
+  return Object.entries(conteo).sort((a, b) => b[1] - a[1])[0][0];
+}
+
+// ============================================================================
+// businessLogic.js — Cálculo de asistencia_resumen_diario
+// ============================================================================
+
+const ACTIVIDADES_DESCANSO = new Set(["descanso", "break", "almuerzo"]);
+const ACTIVIDADES_TRASLADO = new Set(["traslado", "transporte", "movilizacion", "movilización"]);
+
+function norm(txt) {
+  return txt ? String(txt).trim().toLowerCase() : "";
+}
+
+function horaAMinutos(horaStr) {
+  if (!horaStr) return null;
+  const partes = horaStr.split(":");
+  if (partes.length < 2) return null;
+  const h = parseInt(partes[0], 10);
+  const m = parseInt(partes[1], 10);
+  if (isNaN(h) || isNaN(m)) return null;
+  return h * 60 + m;
+}
+
+function clasificarPuntualidad(minutosTardanza, huboEntrada, tolerancia, tardanzaLeveMax) {
+  if (!huboEntrada) return "Sin Entrada";
+  if (minutosTardanza <= tolerancia) return "Puntual";
+  const tardanzaEfectiva = minutosTardanza - tolerancia;
+  return tardanzaEfectiva <= tardanzaLeveMax ? "Tardanza Leve" : "Tardanza Grave";
+}
+
+function calcularResumen(filas, config) {
+  const horaEntradaTeoMin = horaAMinutos(config.horaEntradaTeorica) ?? 480;
+  const tolerancia = config.toleranciaMin ?? 10;
+  const tardanzaLeveMax = config.tardanzaLeveMaxMin ?? 15;
+  const descansoPermitido = config.descansoPermitidoMin ?? 60;
+
+  const grupos = new Map();
+  for (const f of filas) {
+    const clave = `${f.id_empleado}|${f.fecha}`;
+    if (!grupos.has(clave)) grupos.set(clave, []);
+    grupos.get(clave).push(f);
+  }
+
+  const resumenes = [];
+  for (const [clave, grupo] of grupos.entries()) {
+    const [id_empleado, fecha] = clave.split("|");
+    const ordenadas = [...grupo].sort(
+      (a, b) => (horaAMinutos(a.hora_inicio) ?? 0) - (horaAMinutos(b.hora_inicio) ?? 0)
+    );
+
+    const horasInicioValidas = ordenadas.map((f) => f.hora_inicio).filter(Boolean);
+    const horasSalidaValidas = ordenadas.map((f) => f.hora_salida).filter(Boolean);
+
+    const primerCheckin = horasInicioValidas[0] || null;
+    const ultimoCheckout = horasSalidaValidas.length ? horasSalidaValidas[horasSalidaValidas.length - 1] : null;
+
+    const huboEntrada = primerCheckin !== null;
+    let minutosTardanza = 0;
+    if (huboEntrada) {
+      const minCheckin = horaAMinutos(primerCheckin);
+      if (minCheckin !== null) minutosTardanza = Math.max(0, minCheckin - horaEntradaTeoMin);
+    }
+    const clasificacion = clasificarPuntualidad(minutosTardanza, huboEntrada, tolerancia, tardanzaLeveMax);
+
+    const minutosDescanso = ordenadas
+      .filter((f) => ACTIVIDADES_DESCANSO.has(norm(f.actividad)))
+      .reduce((acc, f) => acc + (f.tiempo_transcurrido_min || 0), 0);
+    const excesoDescanso = Math.max(0, minutosDescanso - descansoPermitido);
+
+    const minutosTraslado = ordenadas
+      .filter((f) => ACTIVIDADES_TRASLADO.has(norm(f.actividad)))
+      .reduce((acc, f) => acc + (f.tiempo_transcurrido_min || 0), 0);
+
+    const minutosPdv = ordenadas
+      .filter((f) => !ACTIVIDADES_DESCANSO.has(norm(f.actividad)) && !ACTIVIDADES_TRASLADO.has(norm(f.actividad)))
+      .reduce((acc, f) => acc + (f.tiempo_transcurrido_min || 0), 0);
+
+    const pdvsVisitados = new Set(
+      ordenadas
+        .filter((f) => f.punto_venta && !ACTIVIDADES_DESCANSO.has(norm(f.actividad)) && !ACTIVIDADES_TRASLADO.has(norm(f.actividad)))
+        .map((f) => f.punto_venta)
+    );
+
+    const tieneAbierta = ordenadas.some((f) => f.marcacion_abierta);
+    const [y, mo] = fecha.split("-");
+
+    resumenes.push({
+      id_empleado,
+      fecha,
+      periodo: `${y}-${mo}`,
+      primer_checkin: primerCheckin,
+      ultimo_checkout: ultimoCheckout,
+      minutos_tardanza: minutosTardanza,
+      clasificacion_puntualidad: clasificacion,
+      minutos_descanso_total: minutosDescanso,
+      minutos_exceso_descanso: excesoDescanso,
+      alerta_exceso_descanso: excesoDescanso > 0,
+      minutos_pdv: minutosPdv,
+      minutos_traslado: minutosTraslado,
+      pdvs_unicos_visitados: pdvsVisitados.size,
+      lista_pdvs: pdvsVisitados.size ? [...pdvsVisitados].sort().join("; ") : null,
+      tiene_marcacion_abierta: tieneAbierta,
+    });
+  }
+  return resumenes;
+}
+
+// ============================================================================
+// reportsClient.js — Generación de reportes en el navegador
+// ============================================================================
+
+function descargarBlob(blob, nombreArchivo) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nombreArchivo;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportarExcelConsolidado(resumenes, marcaciones, periodo) {
+  const porEmpleado = new Map();
+  for (const r of resumenes) {
+    const key = r.id_empleado;
+    if (!porEmpleado.has(key)) {
+      porEmpleado.set(key, {
+        "ID Empleado": r.id_empleado,
+        "Nombre": r.nombre,
+        "Dias_Trabajados": new Set(),
+        "Total_Tardanzas": 0,
+        "Tardanzas_Graves": 0,
+        "Minutos_Tardanza_Acumulados": 0,
+        "Minutos_PDV": 0,
+        "Minutos_Traslado": 0,
+        "Exceso_Descanso_Total_Min": 0,
+        "Dias_Sin_Entrada": 0,
+      });
+    }
+    const acc = porEmpleado.get(key);
+    acc.Dias_Trabajados.add(r.fecha);
+    if (r.clasificacion_puntualidad !== "Puntual" && r.clasificacion_puntualidad !== "Sin Entrada") {
+      acc.Total_Tardanzas += 1;
+    }
+    if (r.clasificacion_puntualidad === "Tardanza Grave") acc.Tardanzas_Graves += 1;
+    if (r.clasificacion_puntualidad === "Sin Entrada") acc.Dias_Sin_Entrada += 1;
+    acc.Minutos_Tardanza_Acumulados += r.minutos_tardanza || 0;
+    acc.Minutos_PDV += r.minutos_pdv || 0;
+    acc.Minutos_Traslado += r.minutos_traslado || 0;
+    acc.Exceso_Descanso_Total_Min += r.minutos_exceso_descanso || 0;
+  }
+  const resumenEjecutivo = [...porEmpleado.values()].map((r) => ({
+    "ID Empleado": r["ID Empleado"],
+    "Nombre": r["Nombre"],
+    "Dias Trabajados": r.Dias_Trabajados.size,
+    "Total Tardanzas": r.Total_Tardanzas,
+    "Tardanzas Graves": r.Tardanzas_Graves,
+    "Minutos Tardanza Acumulados": r.Minutos_Tardanza_Acumulados,
+    "Horas PDV": Math.round((r.Minutos_PDV / 60) * 10) / 10,
+    "Horas Traslado": Math.round((r.Minutos_Traslado / 60) * 10) / 10,
+    "Exceso Descanso Total (min)": r.Exceso_Descanso_Total_Min,
+    "Dias Sin Entrada": r.Dias_Sin_Entrada,
+  }));
+
+  const detalleDiario = resumenes.map((r) => ({
+    "ID Empleado": r.id_empleado,
+    "Nombre": r.nombre,
+    "Fecha": r.fecha,
+    "Check-in": r.primer_checkin,
+    "Check-out": r.ultimo_checkout,
+    "Estado": r.clasificacion_puntualidad,
+    "Tardanza (min)": r.minutos_tardanza,
+    "Descanso (min)": r.minutos_descanso_total,
+    "Exceso Descanso (min)": r.minutos_exceso_descanso,
+    "Minutos PDV": r.minutos_pdv,
+    "Minutos Traslado": r.minutos_traslado,
+    "PDVs Únicos": r.pdvs_unicos_visitados,
+    "PDVs Visitados": r.lista_pdvs,
+    "Marcación Abierta": r.tiene_marcacion_abierta ? "Sí" : "No",
+  }));
+
+  const inconsistencias = detalleDiario.filter(
+    (r) =>
+      r["Marcación Abierta"] === "Sí" ||
+      r["Estado"] === "Tardanza Grave" ||
+      r["Exceso Descanso (min)"] > 0
+  );
+
+  const detalleMarcaciones = marcaciones.map((m) => ({
+    "ID Empleado": m.id_empleado,
+    "Nombre": m.nombre,
+    "Fecha": m.fecha,
+    "Punto de Venta": m.punto_venta,
+    "Actividad": m.actividad,
+    "Hora Inicio": m.hora_inicio,
+    "Hora Salida": m.hora_salida || "Sin cierre",
+    "Duración (min)": m.tiempo_transcurrido_min,
+  }));
+
+  const wb = XLSX.utils.book_new();
+  const hojaResumen = XLSX.utils.json_to_sheet(
+    resumenEjecutivo.length ? resumenEjecutivo : [{ Info: "Sin datos para el periodo" }]
+  );
+  const hojaDetalle = XLSX.utils.json_to_sheet(
+    detalleDiario.length ? detalleDiario : [{ Info: "Sin datos" }]
+  );
+  const hojaInconsistencias = XLSX.utils.json_to_sheet(
+    inconsistencias.length ? inconsistencias : [{ Info: "Sin inconsistencias" }]
+  );
+  const hojaMarcaciones = XLSX.utils.json_to_sheet(
+    detalleMarcaciones.length ? detalleMarcaciones : [{ Info: "Sin datos" }]
+  );
+
+  XLSX.utils.book_append_sheet(wb, hojaResumen, "Resumen Ejecutivo");
+  XLSX.utils.book_append_sheet(wb, hojaDetalle, "Detalle Diario");
+  XLSX.utils.book_append_sheet(wb, hojaInconsistencias, "Inconsistencias");
+  XLSX.utils.book_append_sheet(wb, hojaMarcaciones, "Marcaciones Detalle");
+
+  const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([wbout], { type: "application/octet-stream" });
+  descargarBlob(blob, `Consolidado_Asistencia_${periodo}.xlsx`);
+}
+
+function exportarPdfResumenDiario(registrosDelDia, fecha) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "cm", format: "letter" });
+  const azul = [46, 80, 144];
+
+  doc.setFontSize(16);
+  doc.setTextColor(...azul);
+  doc.text("Ficha Ejecutiva Diaria — Control de Asistencia y Rutas", 1.2, 1.3);
+  doc.setFontSize(10);
+  doc.setTextColor(120, 120, 120);
+  const [y, m, d] = fecha.split("-");
+  doc.text(`Fecha: ${d}/${m}/${y}`, 1.2, 1.9);
+
+  if (!registrosDelDia.length) {
+    doc.setTextColor(30, 30, 30);
+    doc.setFontSize(11);
+    doc.text("No hay registros de asistencia para esta fecha.", 1.2, 2.8);
+  } else {
+    const total = registrosDelDia.length;
+    const puntuales = registrosDelDia.filter((r) => r.clasificacion_puntualidad === "Puntual").length;
+    const tardanzas = registrosDelDia.filter((r) =>
+      ["Tardanza Leve", "Tardanza Grave"].includes(r.clasificacion_puntualidad)
+    ).length;
+    const sinEntrada = registrosDelDia.filter((r) => r.clasificacion_puntualidad === "Sin Entrada").length;
+    const excesos = registrosDelDia.filter((r) => r.alerta_exceso_descanso).length;
+
+    doc.autoTable({
+      startY: 2.3,
+      head: [["Colaboradores", "Puntuales", "Con Tardanza", "Sin Entrada", "Exceso Descanso"]],
+      body: [[total, puntuales, tardanzas, sinEntrada, excesos]],
+      theme: "grid",
+      headStyles: { fillColor: azul, halign: "center" },
+      bodyStyles: { halign: "center", fontSize: 9 },
+      margin: { left: 1.2, right: 1.2 },
+    });
+
+    const filas = registrosDelDia
+      .sort((a, b) => a.nombre.localeCompare(b.nombre))
+      .map((r) => {
+        let ruta = r.lista_pdvs || "-";
+        if (ruta.length > 40) ruta = ruta.slice(0, 37) + "...";
+        return [
+          r.nombre,
+          r.primer_checkin || "-",
+          r.ultimo_checkout || (r.tiene_marcacion_abierta ? "Abierta" : "-"),
+          r.clasificacion_puntualidad,
+          r.minutos_tardanza,
+          r.minutos_descanso_total,
+          r.pdvs_unicos_visitados,
+          ruta,
+        ];
+      });
+
+    doc.autoTable({
+      startY: doc.lastAutoTable.finalY + 0.6,
+      head: [["Colaborador", "Check-in", "Check-out", "Estado", "Tardanza (min)", "Descanso (min)", "PDVs", "Ruta"]],
+      body: filas,
+      theme: "grid",
+      headStyles: { fillColor: azul, fontSize: 8 },
+      bodyStyles: { fontSize: 7.5 },
+      margin: { left: 1.2, right: 1.2 },
+      didParseCell: function (data) {
+        if (data.section !== "body") return;
+        const row = registrosDelDia.sort((a, b) => a.nombre.localeCompare(b.nombre))[data.row.index];
+        if (!row) return;
+        if (row.clasificacion_puntualidad === "Tardanza Grave" || row.tiene_marcacion_abierta) {
+          data.cell.styles.fillColor = [250, 219, 216];
+        } else if (row.clasificacion_puntualidad === "Tardanza Leve" || row.alerta_exceso_descanso) {
+          data.cell.styles.fillColor = [253, 235, 208];
+        } else if (row.clasificacion_puntualidad === "Puntual") {
+          data.cell.styles.fillColor = [213, 245, 227];
+        }
+      },
+    });
+  }
+
+  const hoy = new Date().toLocaleDateString("es-ES");
+  doc.setFontSize(8);
+  doc.setTextColor(140, 140, 140);
+  doc.text(
+    `Generado automáticamente el ${hoy} — Sistema de Control de Asistencia y Gestión de Rutas PDV`,
+    1.2,
+    doc.internal.pageSize.getHeight() - 1
+  );
+
+  doc.save(`Ficha_Diaria_${fecha}.pdf`);
+}
+
+// ============================================================================
+// app.js — Orquestador principal
+// ============================================================================
+
+let supabaseClient = null;
+let charts = { ranking: null, evolucion: null, distribucion: null, tendencia: null };
+let cacheResumen = [];
+let periodosDisponibles = [];
+
+function getSupabaseConfig() {
+  const url = localStorage.getItem("sb_url");
+  const key = localStorage.getItem("sb_key");
+  return url && key ? { url, key } : null;
+}
+
+function initSupabase() {
+  const cfg = getSupabaseConfig();
+  if (!cfg) {
+    document.getElementById("setupOverlay").classList.remove("hidden");
+    return false;
+  }
+  supabaseClient = window.supabase.createClient(cfg.url, cfg.key);
+  return true;
+}
+
+document.getElementById("setupSaveBtn").addEventListener("click", async () => {
+  const url = document.getElementById("setupUrl").value.trim();
+  const key = document.getElementById("setupKey").value.trim();
+  const errorEl = document.getElementById("setupError");
+  errorEl.classList.add("hidden");
+  if (!url || !key) {
+    errorEl.textContent = "Completa ambos campos.";
+    errorEl.classList.remove("hidden");
+    return;
+  }
+  const testClient = window.supabase.createClient(url, key);
+  const { error } = await testClient.from("configuracion").select("clave").limit(1);
+  if (error) {
+    errorEl.textContent =
+      "No se pudo conectar. Verifica la URL/clave y que ya ejecutaste schema.sql en Supabase. Detalle: " +
+      error.message;
+    errorEl.classList.remove("hidden");
+    return;
+  }
+  localStorage.setItem("sb_url", url);
+  localStorage.setItem("sb_key", key);
+  supabaseClient = testClient;
+  document.getElementById("setupOverlay").classList.add("hidden");
+  arrancarApp();
+});
+
+document.getElementById("cambiarConexionBtn").addEventListener("click", () => {
+  localStorage.removeItem("sb_url");
+  localStorage.removeItem("sb_key");
+  location.reload();
+});
+
+async function cargarConfiguracion() {
+  const { data, error } = await supabaseClient.from("configuracion").select("clave, valor");
+  if (error) throw error;
+  const cfg = {};
+  data.forEach((row) => (cfg[row.clave] = row.valor));
+  return {
+    horaEntradaTeorica: cfg.hora_entrada_teorica || "08:00",
+    toleranciaMin: parseInt(cfg.tolerancia_min || "10", 10),
+    tardanzaLeveMaxMin: parseInt(cfg.tardanza_leve_max_min || "15", 10),
+    descansoPermitidoMin: parseInt(cfg.descanso_permitido_min || "60", 10),
+  };
+}
+
+async function poblarPanelConfiguracion() {
+  const cfg = await cargarConfiguracion();
+  document.getElementById("cfgHoraEntrada").value = cfg.horaEntradaTeorica;
+  document.getElementById("cfgTolerancia").value = cfg.toleranciaMin;
+  document.getElementById("cfgTardanzaLeve").value = cfg.tardanzaLeveMaxMin;
+  document.getElementById("cfgDescanso").value = cfg.descansoPermitidoMin;
+}
+
+document.getElementById("guardarCfgBtn").addEventListener("click", async () => {
+  const statusEl = document.getElementById("cfgStatus");
+  statusEl.textContent = "Guardando y recalculando...";
+  statusEl.className = "status-msg";
+  try {
+    const valores = {
+      hora_entrada_teorica: document.getElementById("cfgHoraEntrada").value.trim(),
+      tolerancia_min: document.getElementById("cfgTolerancia").value,
+      tardanza_leve_max_min: document.getElementById("cfgTardanzaLeve").value,
+      descanso_permitido_min: document.getElementById("cfgDescanso").value,
+    };
+    for (const [clave, valor] of Object.entries(valores)) {
+      const { error } = await supabaseClient.from("configuracion").update({ valor: String(valor) }).eq("clave", clave);
+      if (error) throw error;
+    }
+    await recalcularTodoElHistorico();
+    statusEl.textContent = "Configuración guardada y datos recalculados.";
+    statusEl.classList.add("ok");
+    await refrescarPeriodosYVista();
+  } catch (err) {
+    statusEl.textContent = "Error: " + err.message;
+    statusEl.classList.add("error");
+  }
+});
+
+async function recalcularTodoElHistorico() {
+  const { data: periodos, error } = await supabaseClient.from("periodos_cargados").select("periodo");
+  if (error) throw error;
+  const config = await cargarConfiguracion();
+  for (const { periodo } of periodos) {
+    const { data: marcaciones, error: errM } = await supabaseClient
+      .from("marcaciones_detalle")
+      .select("id_empleado, fecha, punto_venta, actividad, hora_inicio, hora_salida, tiempo_transcurrido_min, marcacion_abierta, periodo")
+      .eq("periodo", periodo);
+    if (errM) throw errM;
+    const resumenes = calcularResumen(marcaciones, config);
+    await guardarResumenes(periodo, resumenes);
+  }
+}
+
+let archivoSeleccionado = null;
+
+document.getElementById("fileInput").addEventListener("change", (e) => {
+  archivoSeleccionado = e.target.files[0] || null;
+  document.getElementById("procesarBtn").disabled = !archivoSeleccionado;
+});
+
+document.getElementById("procesarBtn").addEventListener("click", async () => {
+  if (!archivoSeleccionado) return;
+  const statusEl = document.getElementById("uploadStatus");
+  statusEl.textContent = "Leyendo y procesando archivo...";
+  statusEl.className = "status-msg";
+
+  try {
+    const arrayBuffer = await archivoSeleccionado.arrayBuffer();
+    const filas = leerYLimpiarExcel(arrayBuffer);
+    if (!filas.length) throw new Error("El archivo no contiene filas válidas.");
+
+    const periodoManual = document.getElementById("periodoManual").value.trim();
+    const periodo = periodoManual || detectarPeriodo(filas);
+
+    const empleadosUnicos = [...new Map(filas.map((f) => [f.id_empleado, f.nombre])).entries()].map(
+      ([id_empleado, nombre]) => ({ id_empleado, nombre })
+    );
+    const { error: errEmp } = await supabaseClient.from("empleados").upsert(empleadosUnicos, { onConflict: "id_empleado" });
+    if (errEmp) throw errEmp;
+
+    const { error: errDel } = await supabaseClient.from("marcaciones_detalle").delete().eq("periodo", periodo);
+    if (errDel) throw errDel;
+
+    const marcacionesInsert = filas.map((f) => ({
+      id_empleado: f.id_empleado,
+      fecha: f.fecha,
+      punto_venta: f.punto_venta,
+      actividad: f.actividad,
+      hora_inicio: f.hora_inicio,
+      hora_salida: f.hora_salida,
+      tiempo_transcurrido_min: f.tiempo_transcurrido_min,
+      marcacion_abierta: f.marcacion_abierta,
+      periodo: f.periodo,
+    }));
+    for (let i = 0; i < marcacionesInsert.length; i += 500) {
+      const lote = marcacionesInsert.slice(i, i + 500);
+      const { error: errIns } = await supabaseClient.from("marcaciones_detalle").insert(lote);
+      if (errIns) throw errIns;
+    }
+
+    const { error: errPer } = await supabaseClient.from("periodos_cargados").upsert(
+      {
+        periodo,
+        nombre_archivo_original: archivoSeleccionado.name,
+        filas_procesadas: marcacionesInsert.length,
+        empleados_afectados: empleadosUnicos.length,
+        fecha_carga: new Date().toISOString(),
+      },
+      { onConflict: "periodo" }
+    );
+    if (errPer) throw errPer;
+
+    const config = await cargarConfiguracion();
+    const resumenes = calcularResumen(filas, config);
+    await guardarResumenes(periodo, resumenes);
+
+    statusEl.textContent = `Periodo ${periodo}: ${marcacionesInsert.length} filas, ${empleadosUnicos.length} colaboradores procesados.`;
+    statusEl.classList.add("ok");
+
+    await refrescarPeriodosYVista(periodo);
+  } catch (err) {
+    statusEl.textContent = "Error: " + err.message;
+    statusEl.classList.add("error");
+  }
+});
+
+async function guardarResumenes(periodo, resumenes) {
+  const { error: errDelRes } = await supabaseClient.from("asistencia_resumen_diario").delete().eq("periodo", periodo);
+  if (errDelRes) throw errDelRes;
+  for (let i = 0; i < resumenes.length; i += 500) {
+    const lote = resumenes.slice(i, i + 500);
+    const { error } = await supabaseClient.from("asistencia_resumen_diario").insert(lote);
+    if (error) throw error;
+  }
+}
+
+async function cargarPeriodosDisponibles() {
+  const { data, error } = await supabaseClient
+    .from("periodos_cargados")
+    .select("periodo, filas_procesadas, empleados_afectados")
+    .order("periodo", { ascending: false });
+  if (error) throw error;
+  periodosDisponibles = data;
+  return data;
+}
+
+function poblarSelectoresPeriodo() {
+  const periodoSelect = document.getElementById("periodoSelect");
+  const periodoMulti = document.getElementById("periodoMulti");
+  periodoSelect.innerHTML = "";
+  periodoMulti.innerHTML = "";
+  periodosDisponibles.forEach(({ periodo }) => {
+    const opt1 = document.createElement("option");
+    opt1.value = periodo;
+    opt1.textContent = periodo;
+    periodoSelect.appendChild(opt1);
+
+    const opt2 = document.createElement("option");
+    opt2.value = periodo;
+    opt2.textContent = periodo;
+    periodoMulti.appendChild(opt2);
+  });
+  if (periodosDisponibles.length) {
+    periodoMulti.querySelectorAll("option")[0].selected = true;
+    if (periodosDisponibles.length > 1) periodoMulti.querySelectorAll("option")[1].selected = true;
+  }
+}
+
+function obtenerModoVista() {
+  return document.querySelector('input[name="modoVista"]:checked').value;
+}
+
+function obtenerPeriodosSeleccionados() {
+  const modo = obtenerModoVista();
+  if (!periodosDisponibles.length) return [];
+  if (modo === "actual") return [periodosDisponibles[0].periodo];
+  if (modo === "especifico") return [document.getElementById("periodoSelect").value];
+  return [...document.getElementById("periodoMulti").selectedOptions].map((o) => o.value);
+}
+
+document.getElementById("modoVistaGroup").addEventListener("change", () => {
+  const modo = obtenerModoVista();
+  document.getElementById("periodoSelect").classList.toggle("hidden", modo !== "especifico");
+  document.getElementById("periodoMultiWrap").classList.toggle("hidden", modo !== "comparativa");
+  renderizarVistaActual();
+});
+document.getElementById("periodoSelect").addEventListener("change", renderizarVistaActual);
+document.getElementById("periodoMulti").addEventListener("change", renderizarVistaActual);
+
+async function obtenerResumenDf(periodos) {
+  if (!periodos.length) return [];
+  const { data, error } = await supabaseClient
+    .from("asistencia_resumen_diario")
+    .select(
+      "id_empleado, fecha, periodo, primer_checkin, ultimo_checkout, minutos_tardanza, clasificacion_puntualidad, minutos_descanso_total, minutos_exceso_descanso, alerta_exceso_descanso, minutos_pdv, minutos_traslado, pdvs_unicos_visitados, lista_pdvs, tiene_marcacion_abierta, empleados(nombre)"
+    )
+    .in("periodo", periodos)
+    .order("fecha", { ascending: true });
+  if (error) throw error;
+  return data.map((r) => ({ ...r, nombre: r.empleados ? r.empleados.nombre : r.id_empleado }));
+}
+
+async function obtenerMarcacionesDf(periodo) {
+  const { data, error } = await supabaseClient
+    .from("marcaciones_detalle")
+    .select("id_empleado, fecha, punto_venta, actividad, hora_inicio, hora_salida, tiempo_transcurrido_min, empleados(nombre)")
+    .eq("periodo", periodo);
+  if (error) throw error;
+  return data.map((r) => ({ ...r, nombre: r.empleados ? r.empleados.nombre : r.id_empleado }));
+}
+
+async function refrescarPeriodosYVista(periodoAEnfocar) {
+  await cargarPeriodosDisponibles();
+  poblarSelectoresPeriodo();
+  if (periodoAEnfocar) document.getElementById("periodoSelect").value = periodoAEnfocar;
+  await renderizarVistaActual();
+}
+
+async function renderizarVistaActual() {
+  if (!periodosDisponibles.length) {
+    document.getElementById("emptyState").classList.remove("hidden");
+    document.getElementById("dashboardContent").classList.add("hidden");
+    return;
+  }
+  document.getElementById("emptyState").classList.add("hidden");
+  document.getElementById("dashboardContent").classList.remove("hidden");
+
+  const periodos = obtenerPeriodosSeleccionados();
+  cacheResumen = await obtenerResumenDf(periodos);
+  poblarFiltrosDinamicos(cacheResumen);
+  aplicarFiltrosYRenderizar();
+}
+
+function poblarFiltrosDinamicos(df) {
+  const empleados = [...new Set(df.map((r) => r.nombre))].sort();
+  const estados = [...new Set(df.map((r) => r.clasificacion_puntualidad))].sort();
+
+  const selEmp = document.getElementById("filtroEmpleado");
+  const valoresEmpPrevios = new Set([...selEmp.selectedOptions].map((o) => o.value));
+  selEmp.innerHTML = "";
+  empleados.forEach((n) => {
+    const opt = document.createElement("option");
+    opt.value = n;
+    opt.textContent = n;
+    opt.selected = valoresEmpPrevios.has(n);
+    selEmp.appendChild(opt);
+  });
+
+  const selEst = document.getElementById("filtroEstado");
+  const valoresEstPrevios = new Set([...selEst.selectedOptions].map((o) => o.value));
+  selEst.innerHTML = "";
+  estados.forEach((e) => {
+    const opt = document.createElement("option");
+    opt.value = e;
+    opt.textContent = e;
+    opt.selected = valoresEstPrevios.has(e);
+    selEst.appendChild(opt);
+  });
+
+  if (df.length) {
+    const fechas = df.map((r) => r.fecha).sort();
+    if (!document.getElementById("filtroFechaDesde").value) document.getElementById("filtroFechaDesde").value = fechas[0];
+    if (!document.getElementById("filtroFechaHasta").value) document.getElementById("filtroFechaHasta").value = fechas[fechas.length - 1];
+    document.getElementById("fechaPdf").value = fechas[fechas.length - 1];
+  }
+}
+
+["filtroEmpleado", "filtroFechaDesde", "filtroFechaHasta", "filtroEstado"].forEach((id) => {
+  document.getElementById(id).addEventListener("change", aplicarFiltrosYRenderizar);
+});
+
+function aplicarFiltrosYRenderizar() {
+  const empSel = [...document.getElementById("filtroEmpleado").selectedOptions].map((o) => o.value);
+  const estSel = [...document.getElementById("filtroEstado").selectedOptions].map((o) => o.value);
+  const desde = document.getElementById("filtroFechaDesde").value;
+  const hasta = document.getElementById("filtroFechaHasta").value;
+
+  let df = cacheResumen;
+  if (empSel.length) df = df.filter((r) => empSel.includes(r.nombre));
+  if (estSel.length) df = df.filter((r) => estSel.includes(r.clasificacion_puntualidad));
+  if (desde) df = df.filter((r) => r.fecha >= desde);
+  if (hasta) df = df.filter((r) => r.fecha <= hasta);
+
+  renderKPIs(df);
+  renderGraficos(df);
+  renderTabla(df);
+}
+
+function renderKPIs(df) {
+  const totalColaboradores = new Set(df.map((r) => r.id_empleado)).size;
+  const totalDias = df.length;
+  const puntuales = df.filter((r) => r.clasificacion_puntualidad === "Puntual").length;
+  const pctPuntualidad = totalDias ? ((puntuales / totalDias) * 100).toFixed(1) : "0.0";
+  const totalTardanzas = df.filter((r) => ["Tardanza Leve", "Tardanza Grave"].includes(r.clasificacion_puntualidad)).length;
+  const minutosPerdidos = df.reduce((acc, r) => acc + (r.minutos_tardanza || 0), 0);
+  const promPdvs = totalDias ? (df.reduce((acc, r) => acc + (r.pdvs_unicos_visitados || 0), 0) / totalDias).toFixed(1) : "0.0";
+
+  const kpis = [
+    { label: "Total Colaboradores", value: totalColaboradores },
+    { label: "% Puntualidad General", value: `${pctPuntualidad}%` },
+    { label: "Total Tardanzas", value: totalTardanzas },
+    { label: "Minutos Totales Perdidos", value: minutosPerdidos },
+    { label: "Prom. PDVs Visitados/Día", value: promPdvs },
+  ];
+
+  const row = document.getElementById("kpiRow");
+  row.innerHTML = kpis
+    .map((k) => `<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-value">${k.value}</div></div>`)
+    .join("");
+}
+
+function destruirChart(nombre) {
+  if (charts[nombre]) {
+    charts[nombre].destroy();
+    charts[nombre] = null;
+  }
+}
+
+function renderGraficos(df) {
+  renderRanking(df);
+  renderEvolucion(df);
+  renderDistribucion(df);
+  renderTendencia();
+}
+
+function renderRanking(df) {
+  destruirChart("ranking");
+  const conteo = new Map();
+  df.filter((r) => ["Tardanza Leve", "Tardanza Grave"].includes(r.clasificacion_puntualidad)).forEach((r) => {
+    conteo.set(r.nombre, (conteo.get(r.nombre) || 0) + 1);
+  });
+  const entradas = [...conteo.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const ctx = document.getElementById("chartRanking");
+  charts.ranking = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: entradas.map((e) => e[0]),
+      datasets: [{ label: "Tardanzas", data: entradas.map((e) => e[1]), backgroundColor: "#c0392b" }],
+    },
+    options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } },
+  });
+}
+
+function renderEvolucion(df) {
+  destruirChart("evolucion");
+  const porFechaEstado = new Map();
+  df.forEach((r) => {
+    if (!porFechaEstado.has(r.fecha)) porFechaEstado.set(r.fecha, {});
+    const obj = porFechaEstado.get(r.fecha);
+    obj[r.clasificacion_puntualidad] = (obj[r.clasificacion_puntualidad] || 0) + 1;
+  });
+  const fechas = [...porFechaEstado.keys()].sort();
+  const estados = ["Puntual", "Tardanza Leve", "Tardanza Grave", "Sin Entrada"];
+  const colores = { Puntual: "#58D68D", "Tardanza Leve": "#F5B041", "Tardanza Grave": "#c0392b", "Sin Entrada": "#8e8e8e" };
+
+  const ctx = document.getElementById("chartEvolucion");
+  charts.evolucion = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: fechas,
+      datasets: estados.map((est) => ({
+        label: est,
+        data: fechas.map((f) => (porFechaEstado.get(f)[est] || 0)),
+        borderColor: colores[est],
+        backgroundColor: colores[est],
+        tension: 0.25,
+      })),
+    },
+    options: { responsive: true, maintainAspectRatio: false },
+  });
+}
+
+function renderDistribucion(df) {
+  destruirChart("distribucion");
+  const totalPdv = df.reduce((acc, r) => acc + (r.minutos_pdv || 0), 0);
+  const totalTraslado = df.reduce((acc, r) => acc + (r.minutos_traslado || 0), 0);
+  const totalDescanso = df.reduce((acc, r) => acc + (r.minutos_descanso_total || 0), 0);
+
+  const ctx = document.getElementById("chartDistribucion");
+  charts.distribucion = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: ["PDV", "Traslado", "Descanso"],
+      datasets: [{ data: [totalPdv, totalTraslado, totalDescanso], backgroundColor: ["#2E5090", "#F5B041", "#58D68D"] }],
+    },
+    options: { responsive: true, maintainAspectRatio: false },
+  });
+}
+
+async function renderTendencia() {
+  destruirChart("tendencia");
+  const ctx = document.getElementById("chartTendencia");
+  if (periodosDisponibles.length < 2) {
+    return;
+  }
+  const todosPeriodos = periodosDisponibles.map((p) => p.periodo);
+  const dfHist = await obtenerResumenDf(todosPeriodos);
+  const porPeriodo = new Map();
+  dfHist.forEach((r) => {
+    if (!porPeriodo.has(r.periodo)) porPeriodo.set(r.periodo, { total: 0, puntuales: 0, tardanzas: 0 });
+    const acc = porPeriodo.get(r.periodo);
+    acc.total += 1;
+    if (r.clasificacion_puntualidad === "Puntual") acc.puntuales += 1;
+    if (["Tardanza Leve", "Tardanza Grave"].includes(r.clasificacion_puntualidad)) acc.tardanzas += 1;
+  });
+  const periodosOrdenados = [...porPeriodo.keys()].sort();
+
+  charts.tendencia = new Chart(ctx, {
+    data: {
+      labels: periodosOrdenados,
+      datasets: [
+        {
+          type: "line",
+          label: "% Puntualidad",
+          data: periodosOrdenados.map((p) => ((porPeriodo.get(p).puntuales / porPeriodo.get(p).total) * 100).toFixed(1)),
+          borderColor: "#2E5090",
+          yAxisID: "y",
+        },
+        {
+          type: "bar",
+          label: "Tardanzas",
+          data: periodosOrdenados.map((p) => porPeriodo.get(p).tardanzas),
+          backgroundColor: "rgba(245,176,65,0.5)",
+          yAxisID: "y1",
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { type: "linear", position: "left", title: { display: true, text: "% Puntualidad" } },
+        y1: { type: "linear", position: "right", title: { display: true, text: "Tardanzas" }, grid: { drawOnChartArea: false } },
+      },
+    },
+  });
+}
+
+function claseFila(r) {
+  if (r.tiene_marcacion_abierta || r.clasificacion_puntualidad === "Tardanza Grave") return "row-rojo";
+  if (r.clasificacion_puntualidad === "Tardanza Leve" || r.alerta_exceso_descanso) return "row-amarillo";
+  if (r.clasificacion_puntualidad === "Puntual") return "row-verde";
+  return "";
+}
+
+function renderTabla(df) {
+  const tbody = document.querySelector("#tablaAuditoria tbody");
+  const filasOrdenadas = [...df].sort((a, b) => (a.fecha + a.nombre).localeCompare(b.fecha + b.nombre));
+  tbody.innerHTML = filasOrdenadas
+    .map(
+      (r) => `
+    <tr class="${claseFila(r)}">
+      <td>${r.nombre}</td>
+      <td>${r.fecha}</td>
+      <td>${r.primer_checkin || "-"}</td>
+      <td>${r.ultimo_checkout || (r.tiene_marcacion_abierta ? "Abierta" : "-")}</td>
+      <td>${r.clasificacion_puntualidad}</td>
+      <td>${r.minutos_tardanza}</td>
+      <td>${r.minutos_descanso_total}</td>
+      <td>${r.minutos_exceso_descanso}</td>
+      <td>${r.pdvs_unicos_visitados}</td>
+      <td>${r.tiene_marcacion_abierta ? "Sí" : "No"}</td>
+      <td>${r.lista_pdvs || "-"}</td>
+    </tr>`
+    )
+    .join("");
+}
+
+document.getElementById("exportExcelBtn").addEventListener("click", async () => {
+  const periodos = obtenerPeriodosSeleccionados();
+  const periodo = periodos[0] || (periodosDisponibles[0] && periodosDisponibles[0].periodo);
+  if (!periodo) return;
+  const resumenes = await obtenerResumenDf([periodo]);
+  const marcaciones = await obtenerMarcacionesDf(periodo);
+  exportarExcelConsolidado(resumenes, marcaciones, periodo);
+});
+
+document.getElementById("exportPdfBtn").addEventListener("click", () => {
+  const fecha = document.getElementById("fechaPdf").value;
+  if (!fecha) return;
+  const registrosDelDia = cacheResumen.filter((r) => r.fecha === fecha);
+  exportarPdfResumenDiario(registrosDelDia, fecha);
+});
+
+async function arrancarApp() {
+  await poblarPanelConfiguracion();
+  await refrescarPeriodosYVista();
+}
+
+if (initSupabase()) {
+  arrancarApp();
+}
+</script>
+</body>
+</html>

@@ -161,28 +161,11 @@
 
         <section id="atencionRequerida" class="atencion-requerida" aria-live="polite"></section>
 
-        <section class="charts-grid">
+        <section class="charts-grid charts-grid-unica">
           <div class="chart-panel">
             <h3 class="eyebrow">Colaboradores con más tardanzas</h3>
             <p class="chart-subtitle muted">Cantidad de llegadas registradas desde las 08:11</p>
             <canvas id="chartRanking"></canvas>
-          </div>
-          <div class="chart-panel">
-            <h3 class="eyebrow">Evolución diaria de asistencia</h3>
-            <p class="chart-subtitle muted">Cantidad de colaboradores por estado y fecha</p>
-            <canvas id="chartEvolucion"></canvas>
-          </div>
-          <div class="chart-panel">
-            <h3 class="eyebrow">Distribución del tiempo de trabajo</h3>
-            <p class="chart-subtitle muted">Minutos registrados por categoría</p>
-            <canvas id="chartDistribucion"></canvas>
-            <p id="distribucionTotal" class="chart-caption mono"></p>
-          </div>
-          <div class="chart-panel">
-            <h3 class="eyebrow">Tendencia mensual histórica</h3>
-            <p class="chart-subtitle muted">% Puntualidad (línea) y cantidad de tardanzas (barras) por mes</p>
-            <canvas id="chartTendencia"></canvas>
-            <p class="chart-empty muted">Carga al menos 2 meses para ver la tendencia.</p>
           </div>
         </section>
 
@@ -199,13 +182,19 @@
           <h2 class="eyebrow">Auditoría diaria</h2>
 
           <div class="toolbar-auditoria">
-            <div class="filter-item">
-              <label class="eyebrow">Desde</label>
-              <input type="date" id="filtroFechaDesde" />
-            </div>
-            <div class="filter-item">
-              <label class="eyebrow">Hasta</label>
-              <input type="date" id="filtroFechaHasta" />
+            <div class="filter-item filter-item-rango-fechas">
+              <label class="eyebrow">📅 Rango de fechas</label>
+              <div class="rango-fechas">
+                <div class="rango-fechas-campo">
+                  <span class="rango-fechas-sub">Desde</span>
+                  <input type="date" id="filtroFechaDesde" />
+                </div>
+                <span class="rango-fechas-separador">—</span>
+                <div class="rango-fechas-campo">
+                  <span class="rango-fechas-sub">Hasta</span>
+                  <input type="date" id="filtroFechaHasta" />
+                </div>
+              </div>
             </div>
             <div class="filter-item">
               <label class="eyebrow">Estado</label>
@@ -246,7 +235,7 @@
                   <th>Fecha</th>
                   <th>Entrada</th>
                   <th>Salida</th>
-                  <th>Estado</th>
+                  <th title="Puntual, Tardanza Leve o Tardanza a Supervisar según la hora de entrada. 'Abierta' significa que no se registró la salida de un punto de venta ese día.">Estado <span class="info-icon">ⓘ</span></th>
                   <th title="Diferencia entre la hora de entrada registrada y las 08:00. Las entradas hasta las 08:10 se consideran puntuales por la tolerancia establecida.">Min. desde las 08:00 <span class="info-icon">ⓘ</span></th>
                   <th title="Minutos de descanso registrados en el día. Se indica el exceso entre paréntesis cuando supera el límite permitido.">Descanso (min) <span class="info-icon">ⓘ</span></th>
                   <th>PDV</th>

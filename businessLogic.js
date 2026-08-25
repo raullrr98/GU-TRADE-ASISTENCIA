@@ -195,18 +195,32 @@ function calcularResumen(filas, config) {
         .map((f) => String(f.id_punto_venta).trim().toLowerCase())
     );
 
-    // Secuencia ordenada cronológicamente (para dibujar la línea de ruta),
-    // colapsando visitas consecutivas al mismo PDV. rutaDetalle además lleva
-    // los minutos reales pasados en cada parada (para el tooltip de la ruta:
-    // "cuánto tiempo estuvo en el local").
+    // Secuencia ordenada cronológicamente (para el desplegable de "Ruta del
+    // día"), colapsando visitas consecutivas al mismo PDV. rutaDetalle lleva
+    // el horario real de entrada/salida de cada parada (para mostrar "a qué
+    // hora entró y salió de cada punto") y si esa parada quedó sin cerrar.
     const secuenciaCruda = ordenadas
       .filter((f) => f.punto_venta && !ACTIVIDADES_DESCANSO.has(norm(f.actividad)) && !ACTIVIDADES_TRASLADO.has(norm(f.actividad)))
-      .map((f) => ({ pdv: f.punto_venta, minutos: f.tiempo_transcurrido_min || 0 }));
+      .map((f) => ({
+        pdv: f.punto_venta,
+        id_pdv: f.id_punto_venta ? String(f.id_punto_venta).trim().toLowerCase() : null,
+        entrada: f.hora_inicio,
+        salida: f.hora_salida,
+        minutos: f.tiempo_transcurrido_min || 0,
+        abierta: f.marcacion_abierta,
+      }));
     const rutaDetalle = [];
     for (const parada of secuenciaCruda) {
       const anterior = rutaDetalle[rutaDetalle.length - 1];
-      if (anterior && anterior.pdv === parada.pdv) anterior.minutos += parada.minutos;
-      else rutaDetalle.push({ ...parada });
+      if (anterior && anterior.pdv === parada.pdv) {
+        // Visita consecutiva al mismo PDV: se combina en una sola parada,
+        // sumando minutos y extendiendo la salida hasta la última marcación.
+        anterior.minutos += parada.minutos;
+        anterior.salida = parada.salida;
+        anterior.abierta = parada.abierta;
+      } else {
+        rutaDetalle.push({ ...parada });
+      }
     }
     const pdvsSecuencia = rutaDetalle.map((p) => p.pdv);
 
@@ -279,12 +293,13 @@ function calcularResumen(filas, config) {
       tiene_marcacion_abierta: tieneAbierta,
       inconsistencias,
       tiene_inconsistencia: inconsistencias.length > 0,
-      // Estos tres campos los completa evaluarCumplimientoRuta() después,
+      // Estos cuatro campos los completa evaluarCumplimientoRuta() después,
       // si hay un catálogo de rutas asignadas cargado. Por defecto (sin
       // catálogo, o persona sin ruta asignada) quedan en null = "no medir".
       ruta_pdvs_esperados: null,
       ruta_cumplida: null,
       ruta_pdvs_faltantes: null,
+      ruta_pdvs_detalle: null,
     });
   }
   return resumenes;
@@ -362,16 +377,35 @@ function evaluarCumplimientoRuta(resumenes, asignaciones, nombresPorIdEmpleado) 
       ...(r.pdvs_secuencia || []).map((n) => normalizarClaveTexto(n)),
     ]);
 
+    // Índice por clave (id o nombre normalizado) hacia el detalle real de la
+    // visita (entrada/salida), para el desplegable "Ruta del día".
+    const detallePorClave = new Map();
+    for (const parada of r.ruta_detalle || []) {
+      if (parada.id_pdv) detallePorClave.set(parada.id_pdv, parada);
+      detallePorClave.set(normalizarClaveTexto(parada.pdv), parada);
+    }
+
     const faltantes = [];
     const esperadosNombres = [];
+    const pdvsDetalle = [];
     for (const [clavePdv, nombrePdv] of esperadosMap.entries()) {
       esperadosNombres.push(nombrePdv);
-      if (!visitadosClaves.has(clavePdv)) faltantes.push(nombrePdv);
+      const visitado = visitadosClaves.has(clavePdv);
+      if (!visitado) faltantes.push(nombrePdv);
+      const parada = detallePorClave.get(clavePdv);
+      pdvsDetalle.push({
+        pdv: nombrePdv,
+        visitado,
+        entrada: parada ? parada.entrada : null,
+        salida: parada && !parada.abierta ? parada.salida : null,
+        abierta: parada ? !!parada.abierta : false,
+      });
     }
 
     r.ruta_pdvs_esperados = esperadosNombres;
     r.ruta_cumplida = faltantes.length === 0;
     r.ruta_pdvs_faltantes = faltantes;
+    r.ruta_pdvs_detalle = pdvsDetalle;
 
     if (faltantes.length > 0) {
       r.inconsistencias.push(`Ruta incompleta: faltó visitar ${faltantes.join(", ")}`);

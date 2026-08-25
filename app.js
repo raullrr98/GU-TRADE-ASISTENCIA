@@ -9,7 +9,7 @@
 // distinto a otro.
 // ============================================================================
 
-let charts = { ranking: null, minutosTardanza: null, evolucion: null, distribucion: null, tendencia: null };
+let charts = { ranking: null, minutosTardanza: null };
 let cacheResumen = []; // dataset completo del/los período(s) seleccionados, SIN filtros de UI
 let dfFiltradoActual = []; // último resultado tras aplicar filtros de UI (usado también por exportación)
 let periodosDisponibles = [];
@@ -994,19 +994,10 @@ function destruirChart(nombre) {
 function renderGraficos(df) {
   renderRanking(df);
   renderMinutosTardanza(df);
-  renderEvolucion(df);
-  renderDistribucion(df);
-  renderTendencia();
 }
 
 const FUENTE_UI = "Arial, sans-serif";
 const FUENTE_MONO = "Arial, sans-serif";
-const COLOR_ESTADO = {
-  [ESTADOS.PUNTUAL]: "#3C8F63",
-  [ESTADOS.LEVE]: "#C98A2B",
-  [ESTADOS.SUPERVISAR]: "#B23B32",
-  [ESTADOS.SIN_ENTRADA]: "#8A8F98",
-};
 
 // Plugin propio (sin dependencias externas) para dibujar el valor al final
 // de cada barra horizontal — evita depender de chartjs-plugin-datalabels.
@@ -1146,223 +1137,13 @@ function renderMinutosTardanza(df) {
   });
 }
 
-function renderEvolucion(df) {
-  destruirChart("evolucion");
-  const porFechaEstado = new Map();
-  df.forEach((r) => {
-    if (!porFechaEstado.has(r.fecha)) porFechaEstado.set(r.fecha, {});
-    const obj = porFechaEstado.get(r.fecha);
-    obj[r.clasificacion_puntualidad] = (obj[r.clasificacion_puntualidad] || 0) + 1;
-  });
-  const fechas = [...porFechaEstado.keys()].sort();
-  const estados = [ESTADOS.PUNTUAL, ESTADOS.LEVE, ESTADOS.SUPERVISAR, ESTADOS.SIN_ENTRADA];
-
-  const ctx = document.getElementById("chartEvolucion");
-  charts.evolucion = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels: fechas.map(fechaLegible),
-      datasets: estados.map((est) => ({
-        label: est,
-        data: fechas.map((f) => (porFechaEstado.get(f)[est] || 0)),
-        borderColor: COLOR_ESTADO[est],
-        backgroundColor: COLOR_ESTADO[est],
-        tension: 0.25,
-        pointRadius: 2,
-      })),
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { font: { family: FUENTE_UI, size: 10 }, boxWidth: 10 } },
-        tooltip: {
-          callbacks: {
-            afterBody: (items) => {
-              const total = items.reduce((acc, it) => acc + (it.parsed.y || 0), 0);
-              return `Total de registros del día: ${total}`;
-            },
-          },
-        },
-      },
-      scales: {
-        x: {
-          ticks: { font: { family: FUENTE_MONO, size: 9 }, maxTicksLimit: 12, autoSkip: true },
-          grid: { display: false },
-        },
-        y: {
-          title: { display: true, text: "Cantidad de colaboradores", font: { family: FUENTE_UI, size: 10 } },
-          ticks: { font: { family: FUENTE_UI, size: 11 }, precision: 0, stepSize: 1 },
-          grid: { color: "#E7E5DC" },
-        },
-      },
-    },
-  });
-}
-
-function renderDistribucion(df) {
-  destruirChart("distribucion");
-  const totalPdv = df.reduce((acc, r) => acc + (r.minutos_pdv || 0), 0);
-  const totalTraslado = df.reduce((acc, r) => acc + (r.minutos_traslado || 0), 0);
-  const totalDescanso = df.reduce((acc, r) => acc + (r.minutos_descanso_total || 0), 0);
-  const totalGeneral = totalPdv + totalTraslado + totalDescanso;
-
-  const datos = [
-    { label: "PDV", minutos: totalPdv, color: "#171B22" },
-    { label: "Traslado", minutos: totalTraslado, color: "#E1962E" },
-    { label: "Descanso", minutos: totalDescanso, color: "#B7B2A3" },
-  ];
-
-  const pluginTotalCentro = {
-    id: "totalCentro",
-    afterDraw(chart) {
-      const { ctx, chartArea } = chart;
-      if (!chartArea) return;
-      const cx = (chartArea.left + chartArea.right) / 2;
-      const cy = (chartArea.top + chartArea.bottom) / 2;
-      ctx.save();
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.font = "600 15px " + FUENTE_MONO;
-      ctx.fillStyle = "#171B22";
-      ctx.fillText(`${totalGeneral} min`, cx, cy - 8);
-      ctx.font = "500 10px " + FUENTE_UI;
-      ctx.fillStyle = "#565F6D";
-      ctx.fillText("total registrado", cx, cy + 10);
-      ctx.restore();
-    },
-  };
-
-  const ctx = document.getElementById("chartDistribucion");
-  charts.distribucion = new Chart(ctx, {
-    type: "doughnut",
-    data: {
-      labels: datos.map((d) => d.label),
-      datasets: [{ data: datos.map((d) => d.minutos), backgroundColor: datos.map((d) => d.color) }],
-    },
-    plugins: [pluginTotalCentro],
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { font: { family: FUENTE_UI, size: 11 }, boxWidth: 10 } },
-        tooltip: {
-          callbacks: {
-            label: (item) => {
-              const d = datos[item.dataIndex];
-              const pct = totalGeneral ? ((d.minutos / totalGeneral) * 100).toFixed(0) : "0";
-              return [
-                `${d.label}`,
-                `${formatMinutos(d.minutos, { conEquivalencia: true })}`,
-                `${pct}% del tiempo registrado`,
-              ];
-            },
-          },
-        },
-      },
-    },
-  });
-
-  const totalEl = document.getElementById("distribucionTotal");
-  if (totalEl) {
-    const horas = Math.floor(totalGeneral / 60);
-    const resto = totalGeneral % 60;
-    totalEl.textContent = totalGeneral
-      ? `Total analizado: ${totalGeneral} min (${horas} h ${resto} min) · distribución calculada sobre el total de minutos registrados`
-      : "Sin minutos registrados en el período filtrado.";
-  }
-}
-
-async function renderTendencia() {
-  destruirChart("tendencia");
-  const ctx = document.getElementById("chartTendencia");
-  const wrap = ctx.closest(".chart-panel");
-  if (periodosDisponibles.length < 2) {
-    wrap.querySelector(".chart-empty")?.classList.remove("hidden");
-    ctx.classList.add("hidden");
-    return;
-  }
-  wrap.querySelector(".chart-empty")?.classList.add("hidden");
-  ctx.classList.remove("hidden");
-
-  const todosPeriodos = periodosDisponibles.map((p) => p.periodo);
-  const dfHist = await obtenerResumenDf(todosPeriodos);
-  const porPeriodo = new Map();
-  dfHist.forEach((r) => {
-    if (!porPeriodo.has(r.periodo)) porPeriodo.set(r.periodo, { total: 0, puntuales: 0, tardanzas: 0, minutos: 0 });
-    const acc = porPeriodo.get(r.periodo);
-    acc.total += 1;
-    if (r.clasificacion_puntualidad === ESTADOS.PUNTUAL) acc.puntuales += 1;
-    if (esTardanza(r.clasificacion_puntualidad)) {
-      acc.tardanzas += 1;
-      acc.minutos += r.minutos_tardanza || 0;
-    }
-  });
-  const periodosOrdenados = [...porPeriodo.keys()].sort();
-
-  charts.tendencia = new Chart(ctx, {
-    data: {
-      labels: periodosOrdenados.map(nombreMes),
-      datasets: [
-        {
-          type: "line",
-          label: "% Puntualidad",
-          data: periodosOrdenados.map((p) => ((porPeriodo.get(p).puntuales / porPeriodo.get(p).total) * 100).toFixed(1)),
-          borderColor: "#171B22",
-          backgroundColor: "#171B22",
-          yAxisID: "y",
-        },
-        {
-          type: "bar",
-          label: "Cantidad de tardanzas",
-          data: periodosOrdenados.map((p) => porPeriodo.get(p).tardanzas),
-          backgroundColor: "rgba(225,150,46,0.55)",
-          yAxisID: "y1",
-          barThickness: 18,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { font: { family: FUENTE_UI, size: 10 }, boxWidth: 10 } },
-        tooltip: {
-          callbacks: {
-            afterBody: (items) => {
-              const p = periodosOrdenados[items[0].dataIndex];
-              const acc = porPeriodo.get(p);
-              return [`Minutos acumulados de tardanza: ${formatMinutos(acc.minutos, { conEquivalencia: true })}`];
-            },
-          },
-        },
-      },
-      scales: {
-        x: { ticks: { font: { family: FUENTE_UI, size: 10 } }, grid: { display: false } },
-        y: {
-          type: "linear",
-          position: "left",
-          title: { display: true, text: "% Puntualidad", font: { family: FUENTE_UI, size: 9 } },
-          ticks: { font: { family: FUENTE_UI, size: 10 } },
-          grid: { color: "#E7E5DC" },
-        },
-        y1: {
-          type: "linear",
-          position: "right",
-          title: { display: true, text: "Cantidad de tardanzas", font: { family: FUENTE_UI, size: 9 } },
-          ticks: { font: { family: FUENTE_UI, size: 10 }, precision: 0 },
-          grid: { drawOnChartArea: false },
-        },
-      },
-    },
-  });
-}
-
 // ---------------------------------------------------------------------------
 // TABLA DE AUDITORÍA (con tira de ruta como firma visual)
 // ---------------------------------------------------------------------------
 function tagEstado(r) {
-  if (r.tiene_marcacion_abierta) return `<span class="tag tag-rojo">● Abierta</span>`;
+  if (r.tiene_marcacion_abierta) {
+    return `<span class="tag tag-rojo" title="Marcación abierta: la persona registró una entrada a un punto de venta pero no se encontró la marcación de salida correspondiente ese día.">● Abierta</span>`;
+  }
   const map = {
     [ESTADOS.SUPERVISAR]: "tag-rojo",
     [ESTADOS.LEVE]: "tag-ambar",
@@ -1381,24 +1162,16 @@ function abreviarPdv(nombre) {
   return primera.slice(0, 3).toUpperCase();
 }
 
+// Resumen compacto de la ruta para la celda de la tabla (el detalle completo
+// con horarios de entrada/salida de cada parada aparece en el desplegable al
+// tocar el nombre del colaborador — ver filaDetalleRuta()).
 function tiraDeRuta(r) {
-  const detalle = r.ruta_detalle && r.ruta_detalle.length
-    ? r.ruta_detalle
-    : (r.pdvs_secuencia && r.pdvs_secuencia.length
-        ? r.pdvs_secuencia.map((pdv) => ({ pdv, minutos: null }))
-        : (r.lista_pdvs ? r.lista_pdvs.split("; ").map((pdv) => ({ pdv, minutos: null })) : []));
-  if (!detalle.length) return `<span class="muted">Sin registro de ruta</span>`;
-  const pasos = detalle
-    .map((parada, i) => {
-      const tooltip = parada.minutos !== null ? `${parada.pdv} — ${formatMinutos(parada.minutos)}` : parada.pdv;
-      return `
-      <span class="ruta-parada" title="${tooltip}">
-        <span class="ruta-punto" aria-hidden="true"></span>
-        <span class="ruta-abrev">${abreviarPdv(parada.pdv)}</span>
-      </span>${i < detalle.length - 1 ? '<span class="ruta-flecha" aria-hidden="true">→</span>' : ""}`;
-    })
-    .join("");
-  return `<div class="ruta-strip">${pasos}<span class="ruta-count">${detalle.length}</span></div>`;
+  const nombres = r.pdvs_secuencia && r.pdvs_secuencia.length
+    ? r.pdvs_secuencia
+    : (r.lista_pdvs ? r.lista_pdvs.split("; ") : []);
+  if (!nombres.length) return `<span class="muted">Sin registro de ruta</span>`;
+  const abrevs = nombres.map((pdv) => `<span class="ruta-chip" title="${pdv}">${abreviarPdv(pdv)}</span>`).join("");
+  return `<div class="ruta-strip">${abrevs}<span class="ruta-count">(${nombres.length})</span></div>`;
 }
 
 let limiteDescansoActual = 60; // se refresca en arrancarApp() y tras guardar configuración
@@ -1412,6 +1185,57 @@ function celdaCobertura(r) {
   return `<span class="tag tag-rojo" title="${tituloFaltantes}">● ${visitadosCount}/${total}</span>`;
 }
 
+// Contenido del desplegable "Ruta del día": si la persona tiene ruta
+// asignada ese día, lista los PDV que DEBÍA visitar con check/cruz y su
+// horario real (si los visitó). Si no tiene ruta asignada, lista los PDV
+// que efectivamente visitó (sin comparar contra nada, tal como se acordó).
+function filaDetalleRuta(r) {
+  const tieneRutaAsignada = r.ruta_pdvs_detalle !== null && r.ruta_pdvs_detalle !== undefined;
+
+  if (tieneRutaAsignada) {
+    if (!r.ruta_pdvs_detalle.length) {
+      return `<p class="muted small">No hay puntos de venta asignados para este día.</p>`;
+    }
+    const filasDetalle = r.ruta_pdvs_detalle
+      .map(
+        (p) => `
+      <tr>
+        <td>${p.pdv}</td>
+        <td class="detalle-check">${p.visitado ? '<span class="check-ok" title="Visitado">✓</span>' : '<span class="check-no" title="No visitado">✗</span>'}</td>
+        <td class="mono">${p.entrada || "—"}</td>
+        <td class="mono">${p.abierta ? '<span class="tag tag-rojo">Abierta</span>' : (p.salida || "—")}</td>
+      </tr>`
+      )
+      .join("");
+    return `
+      <table class="detalle-ruta-tabla">
+        <thead><tr><th>Punto de venta asignado</th><th>Visitó</th><th>Entrada</th><th>Salida</th></tr></thead>
+        <tbody>${filasDetalle}</tbody>
+      </table>`;
+  }
+
+  // Sin ruta asignada: se muestra lo que efectivamente visitó, sin evaluar cumplimiento.
+  if (!r.ruta_detalle || !r.ruta_detalle.length) {
+    return `<p class="muted small">Sin ruta asignada para este colaborador y sin visitas registradas este día.</p>`;
+  }
+  const filasVisitas = r.ruta_detalle
+    .map(
+      (p) => `
+    <tr>
+      <td>${p.pdv}</td>
+      <td class="mono">${p.entrada || "—"}</td>
+      <td class="mono">${p.abierta ? '<span class="tag tag-rojo">Abierta</span>' : (p.salida || "—")}</td>
+    </tr>`
+    )
+    .join("");
+  return `
+    <p class="muted small">Este colaborador no tiene ruta asignada — se muestran los puntos de venta que efectivamente visitó.</p>
+    <table class="detalle-ruta-tabla">
+      <thead><tr><th>Punto de venta visitado</th><th>Entrada</th><th>Salida</th></tr></thead>
+      <tbody>${filasVisitas}</tbody>
+    </table>`;
+}
+
 function renderTabla(df) {
   const filasOrdenadas = [...df].sort((a, b) => (a.fecha + a.nombre).localeCompare(b.fecha + b.nombre));
 
@@ -1423,13 +1247,18 @@ function renderTabla(df) {
   const inicio = (paginaActual - 1) * filasPorPagina;
   const filasPagina = filasOrdenadas.slice(inicio, inicio + filasPorPagina);
 
+  const COLSPAN_TOTAL = 12; // Colaborador + Fecha + Entrada + Salida + Estado + Min.desde08 + Descanso + PDV + Ruta + Horas + Jornada + Cobertura
   const tbody = document.querySelector("#tablaAuditoria tbody");
   tbody.innerHTML = filasPagina
-    .map((r) => {
+    .map((r, idx) => {
       const inconsistenciaTitle = r.tiene_inconsistencia ? (r.inconsistencias || []).join("; ") : "";
+      const rowKey = `fila-${idx}`;
       return `
-    <tr class="${r.alerta_exceso_descanso ? "fila-exceso" : ""} ${r.tiene_inconsistencia ? "fila-inconsistente" : ""}">
-      <td class="td-nombre th-sticky">${r.nombre || "Sin datos"}${r.tiene_inconsistencia ? ` <span class="info-icon" title="${inconsistenciaTitle}">⚠</span>` : ""}</td>
+    <tr class="${r.alerta_exceso_descanso ? "fila-exceso" : ""} ${r.tiene_inconsistencia ? "fila-inconsistente" : ""}" data-rowkey="${rowKey}">
+      <td class="td-nombre th-sticky td-expandible" data-toggle="${rowKey}" title="Tocar para ver el detalle de la ruta del día">
+        <span class="expand-icono" aria-hidden="true">▸</span>
+        ${r.nombre || "Sin datos"}${r.tiene_inconsistencia ? ` <span class="info-icon" title="${inconsistenciaTitle}">⚠</span>` : ""}
+      </td>
       <td class="mono">${fechaLegible(r.fecha)}</td>
       <td class="mono">${r.primer_checkin || "—"}</td>
       <td class="mono">${r.ultimo_checkout || (r.tiene_marcacion_abierta ? "Abierta" : "—")}</td>
@@ -1441,9 +1270,24 @@ function renderTabla(df) {
       <td class="mono num">${formatHorasTrabajadas(r.minutos_efectivos)}</td>
       <td>${r.minutos_efectivos === null ? `<span class="muted">—</span>` : r.cumplio_jornada ? `<span class="tag tag-verde">● Cumplida</span>` : `<span class="tag tag-ambar">● Incompleta</span>`}</td>
       <td>${celdaCobertura(r)}</td>
+    </tr>
+    <tr class="fila-detalle-ruta hidden" data-rowkey-detalle="${rowKey}">
+      <td colspan="${COLSPAN_TOTAL}">${filaDetalleRuta(r)}</td>
     </tr>`;
     })
     .join("");
+
+  tbody.querySelectorAll(".td-expandible").forEach((celda) => {
+    celda.addEventListener("click", () => {
+      const key = celda.dataset.toggle;
+      const detalle = tbody.querySelector(`[data-rowkey-detalle="${key}"]`);
+      const icono = celda.querySelector(".expand-icono");
+      if (!detalle) return;
+      const abierta = !detalle.classList.contains("hidden");
+      detalle.classList.toggle("hidden");
+      icono.textContent = abierta ? "▸" : "▾";
+    });
+  });
 
   renderPaginacion(totalFilas, totalPaginas, inicio);
 }

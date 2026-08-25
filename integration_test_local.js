@@ -115,7 +115,7 @@ async function main() {
   console.log(window.document.getElementById("uploadResumen").textContent.replace(/\s+/g, " ").trim());
 
   // --- Verificar cada fila de la tabla renderizada contra la tabla obligatoria ---
-  const filas = [...window.document.querySelectorAll("#tablaAuditoria tbody tr")];
+  const filas = [...window.document.querySelectorAll("#tablaAuditoria > tbody > tr:not(.fila-detalle-ruta)")];
   console.log(`\nFilas en la tabla: ${filas.length} (se esperan 10)`);
 
   let todosOk = filas.length === 10;
@@ -190,14 +190,14 @@ async function main() {
   checkboxLeve.dispatchEvent(new window.Event("change", { bubbles: true }));
   await new Promise((r) => setTimeout(r, 50));
   console.log(`Botón tras seleccionar "Tardanza Leve": "${msEstadoBtn.textContent}"`);
-  const filasFiltradasEstado = window.document.querySelectorAll("#tablaAuditoria tbody tr").length;
+  const filasFiltradasEstado = window.document.querySelectorAll("#tablaAuditoria > tbody > tr:not(.fila-detalle-ruta)").length;
   console.log(`Filas tras filtrar por "Tardanza Leve": ${filasFiltradasEstado} (esperado 3: 08:11, 08:20, 08:29)`);
   if (filasFiltradasEstado !== 3) todosOk = false;
 
   // --- Probar "Limpiar filtros" ---
   window.document.getElementById("limpiarFiltrosBtn").click();
   await new Promise((r) => setTimeout(r, 50));
-  const filasTrasLimpiar = window.document.querySelectorAll("#tablaAuditoria tbody tr").length;
+  const filasTrasLimpiar = window.document.querySelectorAll("#tablaAuditoria > tbody > tr:not(.fila-detalle-ruta)").length;
   console.log(`Filas tras "Limpiar filtros": ${filasTrasLimpiar} (esperado 10)`);
   console.log(`Botón de estado tras limpiar: "${msEstadoBtn.textContent}" (esperado "Todos los estados")`);
   if (filasTrasLimpiar !== 10 || msEstadoBtn.textContent !== "Todos los estados") todosOk = false;
@@ -218,7 +218,7 @@ async function main() {
 
   console.log("Estado de carga de rutas:", window.document.getElementById("rutasStatus").textContent);
 
-  const filasTrasRutas = [...window.document.querySelectorAll("#tablaAuditoria tbody tr")];
+  const filasTrasRutas = [...window.document.querySelectorAll("#tablaAuditoria > tbody > tr:not(.fila-detalle-ruta)")];
   const buscarCobertura = (nombre) => {
     const fila = filasTrasRutas.find((tr) => tr.querySelector(".td-nombre").textContent.includes(nombre));
     return fila?.querySelectorAll("td")[11]?.textContent.trim();
@@ -252,6 +252,52 @@ async function main() {
   if (!chipRuta) todosOk = false;
 
   // --- Probar sincronización en vivo con Google Sheets (fetch simulado) ---
+  // --- Probar el desplegable "Ruta del día" al tocar el nombre del colaborador ---
+  console.log("\n=== Probando desplegable de ruta por colaborador ===");
+  const filaEmpleado0800 = filasTrasRutas.find((tr) => tr.querySelector(".td-nombre").textContent.includes("Empleado 0800"));
+  const rowKey0800 = filaEmpleado0800.dataset.rowkey;
+  const detalleRow0800 = window.document.querySelector(`[data-rowkey-detalle="${rowKey0800}"]`);
+  console.log(`Detalle oculto antes de tocar: ${detalleRow0800.classList.contains("hidden") ? "✅" : "❌"}`);
+  if (!detalleRow0800.classList.contains("hidden")) todosOk = false;
+
+  filaEmpleado0800.querySelector(".td-expandible").click();
+  await new Promise((r) => setTimeout(r, 50));
+  console.log(`Detalle visible después de tocar: ${!detalleRow0800.classList.contains("hidden") ? "✅" : "❌"}`);
+  if (detalleRow0800.classList.contains("hidden")) todosOk = false;
+
+  // Empleado 0800 tiene ruta asignada (Farmacia Norte, sábados) que NO cumplió
+  // (solo visitó Tienda Centro) -> debe verse la cruz ✗ y "Farmacia Norte" sin horario.
+  const filasDetalle0800 = detalleRow0800.querySelectorAll(".detalle-ruta-tabla tbody tr");
+  console.log(`Filas del detalle de Empleado 0800: ${filasDetalle0800.length} (esperado 1: Farmacia Norte)`);
+  const textoFila0800 = filasDetalle0800[0]?.textContent || "";
+  const tieneCruz = !!filasDetalle0800[0]?.querySelector(".check-no");
+  console.log(`Detalle contiene "Farmacia Norte" con cruz de no visitado: ${textoFila0800.includes("Farmacia Norte") && tieneCruz ? "✅" : "❌"}`);
+  if (!textoFila0800.includes("Farmacia Norte") || !tieneCruz) todosOk = false;
+
+  // Empleado 0759 SÍ cumplió su ruta (Tienda Centro) -> debe verse el check ✓ con horario real
+  const filaEmpleado0759 = filasTrasRutas.find((tr) => tr.querySelector(".td-nombre").textContent.includes("Empleado 0759"));
+  filaEmpleado0759.querySelector(".td-expandible").click();
+  await new Promise((r) => setTimeout(r, 50));
+  const detalleRow0759 = window.document.querySelector(`[data-rowkey-detalle="${filaEmpleado0759.dataset.rowkey}"]`);
+  const filaDetalle0759 = detalleRow0759.querySelector(".detalle-ruta-tabla tbody tr");
+  const tieneCheck0759 = !!filaDetalle0759?.querySelector(".check-ok");
+  const horarioVisible0759 = filaDetalle0759?.textContent.includes("07:59") || filaDetalle0759?.textContent.includes("12:00");
+  console.log(`Empleado 0759 — check de visitado: ${tieneCheck0759 ? "✅" : "❌"} | horario visible: ${horarioVisible0759 ? "✅" : "❌"}`);
+  if (!tieneCheck0759 || !horarioVisible0759) todosOk = false;
+
+  // Empleado 0810 no tiene ruta asignada (en este punto, antes del test de
+  // sincronización) -> el detalle debe mostrar sus visitas reales sin checks.
+  const filaEmpleado0810 = filasTrasRutas.find((tr) => tr.querySelector(".td-nombre").textContent.includes("Empleado 0810"));
+  filaEmpleado0810.querySelector(".td-expandible").click();
+  await new Promise((r) => setTimeout(r, 50));
+  const detalleRow0810 = window.document.querySelector(`[data-rowkey-detalle="${filaEmpleado0810.dataset.rowkey}"]`);
+  const textoDetalle0810 = detalleRow0810.textContent;
+  console.log(`Empleado 0810 (sin ruta asignada) — mensaje de "no tiene ruta asignada": ${textoDetalle0810.includes("no tiene ruta asignada") ? "✅" : "❌"}`);
+  if (!textoDetalle0810.includes("no tiene ruta asignada")) todosOk = false;
+  const sinChecks0810 = !detalleRow0810.querySelector(".check-ok, .check-no");
+  console.log(`Empleado 0810 — sin columna de check (no hay nada que comparar): ${sinChecks0810 ? "✅" : "❌"}`);
+  if (!sinChecks0810) todosOk = false;
+
   console.log("\n=== Probando sincronización en vivo de rutas (Google Sheets) ===");
   const csvSimulado =
     "Cliente,Persona de Interes,Punto de venta,VISITA,IDENTIFICADOR\n" +
@@ -276,7 +322,7 @@ async function main() {
 
   // El nuevo catálogo (sincronizado) reemplaza al anterior (subido manualmente):
   // ahora Empleado 0810 SÍ tiene ruta asignada (antes no tenía ninguna).
-  const filasTrasSync = [...window.document.querySelectorAll("#tablaAuditoria tbody tr")];
+  const filasTrasSync = [...window.document.querySelectorAll("#tablaAuditoria > tbody > tr:not(.fila-detalle-ruta)")];
   const cobertura0810TrasSync = filasTrasSync
     .find((tr) => tr.querySelector(".td-nombre").textContent.includes("Empleado 0810"))
     ?.querySelectorAll("td")[11]?.textContent.trim();
@@ -324,7 +370,7 @@ async function main() {
     window.document.getElementById("guardarCfgBtn").click();
     await new Promise((r) => setTimeout(r, 200));
     // Con tolerancia=5, la entrada 08:10 (10 min) deja de ser Puntual y pasa a Tardanza Leve
-    const filaOtra = [...window.document.querySelectorAll("#tablaAuditoria tbody tr")].find((tr) =>
+    const filaOtra = [...window.document.querySelectorAll("#tablaAuditoria > tbody > tr:not(.fila-detalle-ruta)")].find((tr) =>
       tr.querySelector(".td-nombre").textContent.includes("Empleado 0810")
     );
     const estadoTrasRecalculo = filaOtra?.querySelectorAll("td")[4]?.textContent.replace("●", "").trim();
@@ -352,7 +398,7 @@ async function main() {
   if (chipDescanso) {
     chipDescanso.click();
     await new Promise((r) => setTimeout(r, 50));
-    const filasTrasChip = window.document.querySelectorAll("#tablaAuditoria tbody tr").length;
+    const filasTrasChip = window.document.querySelectorAll("#tablaAuditoria > tbody > tr:not(.fila-detalle-ruta)").length;
     console.log(`Filas tras filtrar por categoría "descansos excedidos": ${filasTrasChip} (esperado 1: Empleado 0800)`);
     if (filasTrasChip !== 1) todosOk = false;
     // Quitar el filtro de categoría para no afectar las pruebas siguientes
@@ -381,7 +427,7 @@ async function main() {
     opcionesPdv[0].checked = true;
     opcionesPdv[0].dispatchEvent(new window.Event("change", { bubbles: true }));
     await new Promise((r) => setTimeout(r, 50));
-    const filasTrasPdv = window.document.querySelectorAll("#tablaAuditoria tbody tr").length;
+    const filasTrasPdv = window.document.querySelectorAll("#tablaAuditoria > tbody > tr:not(.fila-detalle-ruta)").length;
     console.log(`Filas tras filtrar por PDV "${opcionesPdv[0].value}": ${filasTrasPdv}`);
     // Limpiar para no afectar pruebas siguientes
     window.document.getElementById("limpiarFiltrosBtn").click();
@@ -394,7 +440,7 @@ async function main() {
   buscarInput.value = "0811";
   buscarInput.dispatchEvent(new window.Event("input", { bubbles: true }));
   await new Promise((r) => setTimeout(r, 50));
-  const filasTrasBusqueda = window.document.querySelectorAll("#tablaAuditoria tbody tr").length;
+  const filasTrasBusqueda = window.document.querySelectorAll("#tablaAuditoria > tbody > tr:not(.fila-detalle-ruta)").length;
   console.log(`Filas tras buscar "0811": ${filasTrasBusqueda} (esperado 1)`);
   if (filasTrasBusqueda !== 1) todosOk = false;
   buscarInput.value = "";
@@ -449,7 +495,7 @@ async function main() {
   w2.document.getElementById("verHistorialBtn").click();
   await new Promise((r) => setTimeout(r, 200));
   const dashboardVisibleTrasBoton = !w2.document.getElementById("dashboardContent").classList.contains("hidden");
-  const filasTrasBoton = w2.document.querySelectorAll("#tablaAuditoria tbody tr").length;
+  const filasTrasBoton = w2.document.querySelectorAll("#tablaAuditoria > tbody > tr:not(.fila-detalle-ruta)").length;
   console.log(`dashboardContent visible tras pulsar "Ver historial guardado": ${dashboardVisibleTrasBoton} (esperado true)`);
   console.log(`Filas en la tabla tras pulsar el botón: ${filasTrasBoton} (esperado 10)`);
   if (!dashboardVisibleTrasBoton || filasTrasBoton !== 10) todosOk = false;

@@ -139,6 +139,28 @@ la primera vez que lo uses.
 
 ## Qué cambió en esta revisión
 
+- **Se quitaron 3 gráficos**: "Evolución diaria de asistencia", "Distribución
+  del tiempo de trabajo" y "Tendencia mensual histórica". Solo quedan
+  "Colaboradores con más tardanzas" (arriba) y "Minutos de tardanza por
+  colaborador" (en la sección desplegable "Análisis detallado de tardanzas").
+- **Tooltip explicando "Abierta"**: tanto en cada etiqueta de estado como en
+  el encabezado de la columna "Estado", aclarando que significa que no se
+  registró la salida de un punto de venta ese día.
+- **Filtro de fechas agrupado**: "Desde" y "Hasta" ahora se presentan bajo un
+  único rótulo "Rango de fechas" para que se lean como un solo filtro de
+  calendario.
+- **Desplegable de "Ruta del día"**: al tocar el nombre de un colaborador en
+  la tabla, se despliega una fila con el detalle completo:
+  - Si tiene ruta asignada ese día de la semana: lista cada punto de venta
+    que **debía** visitar, con un check ✓ (visitó, con su hora real de
+    entrada y salida) o una cruz ✗ (no lo visitó).
+  - Si no tiene ruta asignada: lista los puntos de venta que efectivamente
+    visitó, con sus horarios, sin evaluar cumplimiento (tal como se definió
+    anteriormente).
+  La columna "Ruta del día" en la tabla ahora muestra solo un resumen
+  compacto (abreviaturas + cantidad); el detalle completo con horarios vive
+  en el desplegable.
+
 - **Tipografía → Arial** en todo el tablero (interfaz y gráficos), quitando
   la dependencia de Google Fonts (el tablero ahora funciona 100% offline).
 - **Tarjetas KPI**: se quitaron "Minutos de tardanza" y "PDV por día"; en su

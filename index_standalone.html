@@ -291,6 +291,8 @@ body {
 
 /* ---------- Gráficos ---------- */
 .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.2rem; }
+.charts-grid-unica { grid-template-columns: 1fr; }
+.charts-grid-unica .chart-panel { height: 340px; }
 .chart-panel {
   background: var(--paper-soft); border: 1px solid var(--line); border-radius: 6px; padding: 1rem;
   height: 300px; display: flex; flex-direction: column; position: relative;
@@ -326,6 +328,11 @@ body {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; margin-bottom: 1rem;
 }
 .toolbar-auditoria .filter-item-buscar { grid-column: span 2; }
+.rango-fechas { display: flex; align-items: flex-end; gap: 0.4rem; margin-top: 0.25rem; }
+.rango-fechas-campo { flex: 1; display: flex; flex-direction: column; }
+.rango-fechas-sub { font-size: 0.68rem; color: var(--ink-soft); margin-bottom: 0.1rem; }
+.rango-fechas-campo input { margin-top: 0 !important; }
+.rango-fechas-separador { color: var(--ink-soft); padding-bottom: 0.55rem; }
 .filter-item select, .filter-item input {
   width: 100%; padding: 0.5rem; border: 1px solid var(--line); border-radius: 4px;
   background: var(--paper-soft); font-family: var(--f-ui); margin-top: 0.25rem;
@@ -342,6 +349,9 @@ th {
 }
 td { padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .td-nombre { font-weight: 600; min-width: 150px; }
+.td-expandible { cursor: pointer; user-select: none; }
+.td-expandible:hover { background: #f2f0ea; }
+.expand-icono { display: inline-block; width: 1em; color: var(--amber-deep); font-size: 0.8em; margin-right: 0.15rem; }
 .th-sticky { position: sticky; left: 0; z-index: 2; background: var(--paper-soft); box-shadow: 2px 0 4px rgba(0,0,0,0.05); }
 th.th-sticky { z-index: 3; }
 .num { text-align: right; }
@@ -358,16 +368,26 @@ tr.fila-inconsistente td:first-child { border-left: 3px solid var(--bad); }
 .tag-rojo { background: var(--bad-soft); color: #7a2f28; }
 .tag-gris { background: #EDEDEA; color: var(--gris-tag); }
 
-/* Firma visual: ruta con abreviaturas y flechas, ej. SUP → MAX → FAR */
-.ruta-strip { display: inline-flex; align-items: center; gap: 0.15rem; flex-wrap: nowrap; }
-.ruta-parada { display: inline-flex; align-items: center; gap: 0.25rem; }
-.ruta-punto {
-  width: 7px; height: 7px; border-radius: 50%; background: var(--ink); flex-shrink: 0;
-  border: 1.5px solid var(--amber);
+/* Resumen compacto de ruta en la celda de la tabla (el detalle completo va
+   en el desplegable, ver .fila-detalle-ruta más abajo) */
+.ruta-strip { display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: nowrap; }
+.ruta-chip {
+  font-family: var(--f-mono); font-size: 0.72rem; font-weight: 600; color: var(--ink);
+  background: #EEECE5; padding: 0.05rem 0.35rem; border-radius: 3px;
 }
-.ruta-abrev { font-family: var(--f-mono); font-size: 0.72rem; font-weight: 600; color: var(--ink); }
-.ruta-flecha { color: var(--ink-soft); font-size: 0.75rem; margin: 0 0.15rem; }
-.ruta-count { font-family: var(--f-mono); font-size: 0.72rem; color: var(--ink-soft); margin-left: 0.4rem; }
+.ruta-count { font-family: var(--f-mono); font-size: 0.72rem; color: var(--ink-soft); margin-left: 0.2rem; }
+
+/* Desplegable de "Ruta del día" al tocar el nombre del colaborador */
+.fila-detalle-ruta td { background: #FAF9F5; padding: 0.8rem 1rem 1rem 2.2rem; white-space: normal; }
+.detalle-ruta-tabla { width: 100%; max-width: 560px; border-collapse: collapse; font-size: 0.82rem; }
+.detalle-ruta-tabla th {
+  position: static; text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--line);
+  font-size: 0.7rem; background: transparent;
+}
+.detalle-ruta-tabla td { padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.detalle-check { text-align: center; }
+.check-ok { color: var(--ok); font-weight: 700; }
+.check-no { color: var(--bad); font-weight: 700; }
 
 /* ---------- Paginación ---------- */
 .paginacion-bar {
@@ -560,28 +580,11 @@ tr.fila-inconsistente td:first-child { border-left: 3px solid var(--bad); }
 
         <section id="atencionRequerida" class="atencion-requerida" aria-live="polite"></section>
 
-        <section class="charts-grid">
+        <section class="charts-grid charts-grid-unica">
           <div class="chart-panel">
             <h3 class="eyebrow">Colaboradores con más tardanzas</h3>
             <p class="chart-subtitle muted">Cantidad de llegadas registradas desde las 08:11</p>
             <canvas id="chartRanking"></canvas>
-          </div>
-          <div class="chart-panel">
-            <h3 class="eyebrow">Evolución diaria de asistencia</h3>
-            <p class="chart-subtitle muted">Cantidad de colaboradores por estado y fecha</p>
-            <canvas id="chartEvolucion"></canvas>
-          </div>
-          <div class="chart-panel">
-            <h3 class="eyebrow">Distribución del tiempo de trabajo</h3>
-            <p class="chart-subtitle muted">Minutos registrados por categoría</p>
-            <canvas id="chartDistribucion"></canvas>
-            <p id="distribucionTotal" class="chart-caption mono"></p>
-          </div>
-          <div class="chart-panel">
-            <h3 class="eyebrow">Tendencia mensual histórica</h3>
-            <p class="chart-subtitle muted">% Puntualidad (línea) y cantidad de tardanzas (barras) por mes</p>
-            <canvas id="chartTendencia"></canvas>
-            <p class="chart-empty muted">Carga al menos 2 meses para ver la tendencia.</p>
           </div>
         </section>
 
@@ -598,13 +601,19 @@ tr.fila-inconsistente td:first-child { border-left: 3px solid var(--bad); }
           <h2 class="eyebrow">Auditoría diaria</h2>
 
           <div class="toolbar-auditoria">
-            <div class="filter-item">
-              <label class="eyebrow">Desde</label>
-              <input type="date" id="filtroFechaDesde" />
-            </div>
-            <div class="filter-item">
-              <label class="eyebrow">Hasta</label>
-              <input type="date" id="filtroFechaHasta" />
+            <div class="filter-item filter-item-rango-fechas">
+              <label class="eyebrow">📅 Rango de fechas</label>
+              <div class="rango-fechas">
+                <div class="rango-fechas-campo">
+                  <span class="rango-fechas-sub">Desde</span>
+                  <input type="date" id="filtroFechaDesde" />
+                </div>
+                <span class="rango-fechas-separador">—</span>
+                <div class="rango-fechas-campo">
+                  <span class="rango-fechas-sub">Hasta</span>
+                  <input type="date" id="filtroFechaHasta" />
+                </div>
+              </div>
             </div>
             <div class="filter-item">
               <label class="eyebrow">Estado</label>
@@ -645,7 +654,7 @@ tr.fila-inconsistente td:first-child { border-left: 3px solid var(--bad); }
                   <th>Fecha</th>
                   <th>Entrada</th>
                   <th>Salida</th>
-                  <th>Estado</th>
+                  <th title="Puntual, Tardanza Leve o Tardanza a Supervisar según la hora de entrada. 'Abierta' significa que no se registró la salida de un punto de venta ese día.">Estado <span class="info-icon">ⓘ</span></th>
                   <th title="Diferencia entre la hora de entrada registrada y las 08:00. Las entradas hasta las 08:10 se consideran puntuales por la tolerancia establecida.">Min. desde las 08:00 <span class="info-icon">ⓘ</span></th>
                   <th title="Minutos de descanso registrados en el día. Se indica el exceso entre paréntesis cuando supera el límite permitido.">Descanso (min) <span class="info-icon">ⓘ</span></th>
                   <th>PDV</th>
@@ -1479,18 +1488,32 @@ function calcularResumen(filas, config) {
         .map((f) => String(f.id_punto_venta).trim().toLowerCase())
     );
 
-    // Secuencia ordenada cronológicamente (para dibujar la línea de ruta),
-    // colapsando visitas consecutivas al mismo PDV. rutaDetalle además lleva
-    // los minutos reales pasados en cada parada (para el tooltip de la ruta:
-    // "cuánto tiempo estuvo en el local").
+    // Secuencia ordenada cronológicamente (para el desplegable de "Ruta del
+    // día"), colapsando visitas consecutivas al mismo PDV. rutaDetalle lleva
+    // el horario real de entrada/salida de cada parada (para mostrar "a qué
+    // hora entró y salió de cada punto") y si esa parada quedó sin cerrar.
     const secuenciaCruda = ordenadas
       .filter((f) => f.punto_venta && !ACTIVIDADES_DESCANSO.has(norm(f.actividad)) && !ACTIVIDADES_TRASLADO.has(norm(f.actividad)))
-      .map((f) => ({ pdv: f.punto_venta, minutos: f.tiempo_transcurrido_min || 0 }));
+      .map((f) => ({
+        pdv: f.punto_venta,
+        id_pdv: f.id_punto_venta ? String(f.id_punto_venta).trim().toLowerCase() : null,
+        entrada: f.hora_inicio,
+        salida: f.hora_salida,
+        minutos: f.tiempo_transcurrido_min || 0,
+        abierta: f.marcacion_abierta,
+      }));
     const rutaDetalle = [];
     for (const parada of secuenciaCruda) {
       const anterior = rutaDetalle[rutaDetalle.length - 1];
-      if (anterior && anterior.pdv === parada.pdv) anterior.minutos += parada.minutos;
-      else rutaDetalle.push({ ...parada });
+      if (anterior && anterior.pdv === parada.pdv) {
+        // Visita consecutiva al mismo PDV: se combina en una sola parada,
+        // sumando minutos y extendiendo la salida hasta la última marcación.
+        anterior.minutos += parada.minutos;
+        anterior.salida = parada.salida;
+        anterior.abierta = parada.abierta;
+      } else {
+        rutaDetalle.push({ ...parada });
+      }
     }
     const pdvsSecuencia = rutaDetalle.map((p) => p.pdv);
 
@@ -1563,12 +1586,13 @@ function calcularResumen(filas, config) {
       tiene_marcacion_abierta: tieneAbierta,
       inconsistencias,
       tiene_inconsistencia: inconsistencias.length > 0,
-      // Estos tres campos los completa evaluarCumplimientoRuta() después,
+      // Estos cuatro campos los completa evaluarCumplimientoRuta() después,
       // si hay un catálogo de rutas asignadas cargado. Por defecto (sin
       // catálogo, o persona sin ruta asignada) quedan en null = "no medir".
       ruta_pdvs_esperados: null,
       ruta_cumplida: null,
       ruta_pdvs_faltantes: null,
+      ruta_pdvs_detalle: null,
     });
   }
   return resumenes;
@@ -1646,16 +1670,35 @@ function evaluarCumplimientoRuta(resumenes, asignaciones, nombresPorIdEmpleado) 
       ...(r.pdvs_secuencia || []).map((n) => normalizarClaveTexto(n)),
     ]);
 
+    // Índice por clave (id o nombre normalizado) hacia el detalle real de la
+    // visita (entrada/salida), para el desplegable "Ruta del día".
+    const detallePorClave = new Map();
+    for (const parada of r.ruta_detalle || []) {
+      if (parada.id_pdv) detallePorClave.set(parada.id_pdv, parada);
+      detallePorClave.set(normalizarClaveTexto(parada.pdv), parada);
+    }
+
     const faltantes = [];
     const esperadosNombres = [];
+    const pdvsDetalle = [];
     for (const [clavePdv, nombrePdv] of esperadosMap.entries()) {
       esperadosNombres.push(nombrePdv);
-      if (!visitadosClaves.has(clavePdv)) faltantes.push(nombrePdv);
+      const visitado = visitadosClaves.has(clavePdv);
+      if (!visitado) faltantes.push(nombrePdv);
+      const parada = detallePorClave.get(clavePdv);
+      pdvsDetalle.push({
+        pdv: nombrePdv,
+        visitado,
+        entrada: parada ? parada.entrada : null,
+        salida: parada && !parada.abierta ? parada.salida : null,
+        abierta: parada ? !!parada.abierta : false,
+      });
     }
 
     r.ruta_pdvs_esperados = esperadosNombres;
     r.ruta_cumplida = faltantes.length === 0;
     r.ruta_pdvs_faltantes = faltantes;
+    r.ruta_pdvs_detalle = pdvsDetalle;
 
     if (faltantes.length > 0) {
       r.inconsistencias.push(`Ruta incompleta: faltó visitar ${faltantes.join(", ")}`);
@@ -1954,7 +1997,7 @@ function exportarPdfResumenDiario(registrosDelDia, fecha, limiteDescanso) {
 // distinto a otro.
 // ============================================================================
 
-let charts = { ranking: null, minutosTardanza: null, evolucion: null, distribucion: null, tendencia: null };
+let charts = { ranking: null, minutosTardanza: null };
 let cacheResumen = []; // dataset completo del/los período(s) seleccionados, SIN filtros de UI
 let dfFiltradoActual = []; // último resultado tras aplicar filtros de UI (usado también por exportación)
 let periodosDisponibles = [];
@@ -2939,19 +2982,10 @@ function destruirChart(nombre) {
 function renderGraficos(df) {
   renderRanking(df);
   renderMinutosTardanza(df);
-  renderEvolucion(df);
-  renderDistribucion(df);
-  renderTendencia();
 }
 
 const FUENTE_UI = "Arial, sans-serif";
 const FUENTE_MONO = "Arial, sans-serif";
-const COLOR_ESTADO = {
-  [ESTADOS.PUNTUAL]: "#3C8F63",
-  [ESTADOS.LEVE]: "#C98A2B",
-  [ESTADOS.SUPERVISAR]: "#B23B32",
-  [ESTADOS.SIN_ENTRADA]: "#8A8F98",
-};
 
 // Plugin propio (sin dependencias externas) para dibujar el valor al final
 // de cada barra horizontal — evita depender de chartjs-plugin-datalabels.
@@ -3091,223 +3125,13 @@ function renderMinutosTardanza(df) {
   });
 }
 
-function renderEvolucion(df) {
-  destruirChart("evolucion");
-  const porFechaEstado = new Map();
-  df.forEach((r) => {
-    if (!porFechaEstado.has(r.fecha)) porFechaEstado.set(r.fecha, {});
-    const obj = porFechaEstado.get(r.fecha);
-    obj[r.clasificacion_puntualidad] = (obj[r.clasificacion_puntualidad] || 0) + 1;
-  });
-  const fechas = [...porFechaEstado.keys()].sort();
-  const estados = [ESTADOS.PUNTUAL, ESTADOS.LEVE, ESTADOS.SUPERVISAR, ESTADOS.SIN_ENTRADA];
-
-  const ctx = document.getElementById("chartEvolucion");
-  charts.evolucion = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels: fechas.map(fechaLegible),
-      datasets: estados.map((est) => ({
-        label: est,
-        data: fechas.map((f) => (porFechaEstado.get(f)[est] || 0)),
-        borderColor: COLOR_ESTADO[est],
-        backgroundColor: COLOR_ESTADO[est],
-        tension: 0.25,
-        pointRadius: 2,
-      })),
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { font: { family: FUENTE_UI, size: 10 }, boxWidth: 10 } },
-        tooltip: {
-          callbacks: {
-            afterBody: (items) => {
-              const total = items.reduce((acc, it) => acc + (it.parsed.y || 0), 0);
-              return `Total de registros del día: ${total}`;
-            },
-          },
-        },
-      },
-      scales: {
-        x: {
-          ticks: { font: { family: FUENTE_MONO, size: 9 }, maxTicksLimit: 12, autoSkip: true },
-          grid: { display: false },
-        },
-        y: {
-          title: { display: true, text: "Cantidad de colaboradores", font: { family: FUENTE_UI, size: 10 } },
-          ticks: { font: { family: FUENTE_UI, size: 11 }, precision: 0, stepSize: 1 },
-          grid: { color: "#E7E5DC" },
-        },
-      },
-    },
-  });
-}
-
-function renderDistribucion(df) {
-  destruirChart("distribucion");
-  const totalPdv = df.reduce((acc, r) => acc + (r.minutos_pdv || 0), 0);
-  const totalTraslado = df.reduce((acc, r) => acc + (r.minutos_traslado || 0), 0);
-  const totalDescanso = df.reduce((acc, r) => acc + (r.minutos_descanso_total || 0), 0);
-  const totalGeneral = totalPdv + totalTraslado + totalDescanso;
-
-  const datos = [
-    { label: "PDV", minutos: totalPdv, color: "#171B22" },
-    { label: "Traslado", minutos: totalTraslado, color: "#E1962E" },
-    { label: "Descanso", minutos: totalDescanso, color: "#B7B2A3" },
-  ];
-
-  const pluginTotalCentro = {
-    id: "totalCentro",
-    afterDraw(chart) {
-      const { ctx, chartArea } = chart;
-      if (!chartArea) return;
-      const cx = (chartArea.left + chartArea.right) / 2;
-      const cy = (chartArea.top + chartArea.bottom) / 2;
-      ctx.save();
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.font = "600 15px " + FUENTE_MONO;
-      ctx.fillStyle = "#171B22";
-      ctx.fillText(`${totalGeneral} min`, cx, cy - 8);
-      ctx.font = "500 10px " + FUENTE_UI;
-      ctx.fillStyle = "#565F6D";
-      ctx.fillText("total registrado", cx, cy + 10);
-      ctx.restore();
-    },
-  };
-
-  const ctx = document.getElementById("chartDistribucion");
-  charts.distribucion = new Chart(ctx, {
-    type: "doughnut",
-    data: {
-      labels: datos.map((d) => d.label),
-      datasets: [{ data: datos.map((d) => d.minutos), backgroundColor: datos.map((d) => d.color) }],
-    },
-    plugins: [pluginTotalCentro],
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { font: { family: FUENTE_UI, size: 11 }, boxWidth: 10 } },
-        tooltip: {
-          callbacks: {
-            label: (item) => {
-              const d = datos[item.dataIndex];
-              const pct = totalGeneral ? ((d.minutos / totalGeneral) * 100).toFixed(0) : "0";
-              return [
-                `${d.label}`,
-                `${formatMinutos(d.minutos, { conEquivalencia: true })}`,
-                `${pct}% del tiempo registrado`,
-              ];
-            },
-          },
-        },
-      },
-    },
-  });
-
-  const totalEl = document.getElementById("distribucionTotal");
-  if (totalEl) {
-    const horas = Math.floor(totalGeneral / 60);
-    const resto = totalGeneral % 60;
-    totalEl.textContent = totalGeneral
-      ? `Total analizado: ${totalGeneral} min (${horas} h ${resto} min) · distribución calculada sobre el total de minutos registrados`
-      : "Sin minutos registrados en el período filtrado.";
-  }
-}
-
-async function renderTendencia() {
-  destruirChart("tendencia");
-  const ctx = document.getElementById("chartTendencia");
-  const wrap = ctx.closest(".chart-panel");
-  if (periodosDisponibles.length < 2) {
-    wrap.querySelector(".chart-empty")?.classList.remove("hidden");
-    ctx.classList.add("hidden");
-    return;
-  }
-  wrap.querySelector(".chart-empty")?.classList.add("hidden");
-  ctx.classList.remove("hidden");
-
-  const todosPeriodos = periodosDisponibles.map((p) => p.periodo);
-  const dfHist = await obtenerResumenDf(todosPeriodos);
-  const porPeriodo = new Map();
-  dfHist.forEach((r) => {
-    if (!porPeriodo.has(r.periodo)) porPeriodo.set(r.periodo, { total: 0, puntuales: 0, tardanzas: 0, minutos: 0 });
-    const acc = porPeriodo.get(r.periodo);
-    acc.total += 1;
-    if (r.clasificacion_puntualidad === ESTADOS.PUNTUAL) acc.puntuales += 1;
-    if (esTardanza(r.clasificacion_puntualidad)) {
-      acc.tardanzas += 1;
-      acc.minutos += r.minutos_tardanza || 0;
-    }
-  });
-  const periodosOrdenados = [...porPeriodo.keys()].sort();
-
-  charts.tendencia = new Chart(ctx, {
-    data: {
-      labels: periodosOrdenados.map(nombreMes),
-      datasets: [
-        {
-          type: "line",
-          label: "% Puntualidad",
-          data: periodosOrdenados.map((p) => ((porPeriodo.get(p).puntuales / porPeriodo.get(p).total) * 100).toFixed(1)),
-          borderColor: "#171B22",
-          backgroundColor: "#171B22",
-          yAxisID: "y",
-        },
-        {
-          type: "bar",
-          label: "Cantidad de tardanzas",
-          data: periodosOrdenados.map((p) => porPeriodo.get(p).tardanzas),
-          backgroundColor: "rgba(225,150,46,0.55)",
-          yAxisID: "y1",
-          barThickness: 18,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { font: { family: FUENTE_UI, size: 10 }, boxWidth: 10 } },
-        tooltip: {
-          callbacks: {
-            afterBody: (items) => {
-              const p = periodosOrdenados[items[0].dataIndex];
-              const acc = porPeriodo.get(p);
-              return [`Minutos acumulados de tardanza: ${formatMinutos(acc.minutos, { conEquivalencia: true })}`];
-            },
-          },
-        },
-      },
-      scales: {
-        x: { ticks: { font: { family: FUENTE_UI, size: 10 } }, grid: { display: false } },
-        y: {
-          type: "linear",
-          position: "left",
-          title: { display: true, text: "% Puntualidad", font: { family: FUENTE_UI, size: 9 } },
-          ticks: { font: { family: FUENTE_UI, size: 10 } },
-          grid: { color: "#E7E5DC" },
-        },
-        y1: {
-          type: "linear",
-          position: "right",
-          title: { display: true, text: "Cantidad de tardanzas", font: { family: FUENTE_UI, size: 9 } },
-          ticks: { font: { family: FUENTE_UI, size: 10 }, precision: 0 },
-          grid: { drawOnChartArea: false },
-        },
-      },
-    },
-  });
-}
-
 // ---------------------------------------------------------------------------
 // TABLA DE AUDITORÍA (con tira de ruta como firma visual)
 // ---------------------------------------------------------------------------
 function tagEstado(r) {
-  if (r.tiene_marcacion_abierta) return `<span class="tag tag-rojo">● Abierta</span>`;
+  if (r.tiene_marcacion_abierta) {
+    return `<span class="tag tag-rojo" title="Marcación abierta: la persona registró una entrada a un punto de venta pero no se encontró la marcación de salida correspondiente ese día.">● Abierta</span>`;
+  }
   const map = {
     [ESTADOS.SUPERVISAR]: "tag-rojo",
     [ESTADOS.LEVE]: "tag-ambar",
@@ -3326,24 +3150,16 @@ function abreviarPdv(nombre) {
   return primera.slice(0, 3).toUpperCase();
 }
 
+// Resumen compacto de la ruta para la celda de la tabla (el detalle completo
+// con horarios de entrada/salida de cada parada aparece en el desplegable al
+// tocar el nombre del colaborador — ver filaDetalleRuta()).
 function tiraDeRuta(r) {
-  const detalle = r.ruta_detalle && r.ruta_detalle.length
-    ? r.ruta_detalle
-    : (r.pdvs_secuencia && r.pdvs_secuencia.length
-        ? r.pdvs_secuencia.map((pdv) => ({ pdv, minutos: null }))
-        : (r.lista_pdvs ? r.lista_pdvs.split("; ").map((pdv) => ({ pdv, minutos: null })) : []));
-  if (!detalle.length) return `<span class="muted">Sin registro de ruta</span>`;
-  const pasos = detalle
-    .map((parada, i) => {
-      const tooltip = parada.minutos !== null ? `${parada.pdv} — ${formatMinutos(parada.minutos)}` : parada.pdv;
-      return `
-      <span class="ruta-parada" title="${tooltip}">
-        <span class="ruta-punto" aria-hidden="true"></span>
-        <span class="ruta-abrev">${abreviarPdv(parada.pdv)}</span>
-      </span>${i < detalle.length - 1 ? '<span class="ruta-flecha" aria-hidden="true">→</span>' : ""}`;
-    })
-    .join("");
-  return `<div class="ruta-strip">${pasos}<span class="ruta-count">${detalle.length}</span></div>`;
+  const nombres = r.pdvs_secuencia && r.pdvs_secuencia.length
+    ? r.pdvs_secuencia
+    : (r.lista_pdvs ? r.lista_pdvs.split("; ") : []);
+  if (!nombres.length) return `<span class="muted">Sin registro de ruta</span>`;
+  const abrevs = nombres.map((pdv) => `<span class="ruta-chip" title="${pdv}">${abreviarPdv(pdv)}</span>`).join("");
+  return `<div class="ruta-strip">${abrevs}<span class="ruta-count">(${nombres.length})</span></div>`;
 }
 
 let limiteDescansoActual = 60; // se refresca en arrancarApp() y tras guardar configuración
@@ -3357,6 +3173,57 @@ function celdaCobertura(r) {
   return `<span class="tag tag-rojo" title="${tituloFaltantes}">● ${visitadosCount}/${total}</span>`;
 }
 
+// Contenido del desplegable "Ruta del día": si la persona tiene ruta
+// asignada ese día, lista los PDV que DEBÍA visitar con check/cruz y su
+// horario real (si los visitó). Si no tiene ruta asignada, lista los PDV
+// que efectivamente visitó (sin comparar contra nada, tal como se acordó).
+function filaDetalleRuta(r) {
+  const tieneRutaAsignada = r.ruta_pdvs_detalle !== null && r.ruta_pdvs_detalle !== undefined;
+
+  if (tieneRutaAsignada) {
+    if (!r.ruta_pdvs_detalle.length) {
+      return `<p class="muted small">No hay puntos de venta asignados para este día.</p>`;
+    }
+    const filasDetalle = r.ruta_pdvs_detalle
+      .map(
+        (p) => `
+      <tr>
+        <td>${p.pdv}</td>
+        <td class="detalle-check">${p.visitado ? '<span class="check-ok" title="Visitado">✓</span>' : '<span class="check-no" title="No visitado">✗</span>'}</td>
+        <td class="mono">${p.entrada || "—"}</td>
+        <td class="mono">${p.abierta ? '<span class="tag tag-rojo">Abierta</span>' : (p.salida || "—")}</td>
+      </tr>`
+      )
+      .join("");
+    return `
+      <table class="detalle-ruta-tabla">
+        <thead><tr><th>Punto de venta asignado</th><th>Visitó</th><th>Entrada</th><th>Salida</th></tr></thead>
+        <tbody>${filasDetalle}</tbody>
+      </table>`;
+  }
+
+  // Sin ruta asignada: se muestra lo que efectivamente visitó, sin evaluar cumplimiento.
+  if (!r.ruta_detalle || !r.ruta_detalle.length) {
+    return `<p class="muted small">Sin ruta asignada para este colaborador y sin visitas registradas este día.</p>`;
+  }
+  const filasVisitas = r.ruta_detalle
+    .map(
+      (p) => `
+    <tr>
+      <td>${p.pdv}</td>
+      <td class="mono">${p.entrada || "—"}</td>
+      <td class="mono">${p.abierta ? '<span class="tag tag-rojo">Abierta</span>' : (p.salida || "—")}</td>
+    </tr>`
+    )
+    .join("");
+  return `
+    <p class="muted small">Este colaborador no tiene ruta asignada — se muestran los puntos de venta que efectivamente visitó.</p>
+    <table class="detalle-ruta-tabla">
+      <thead><tr><th>Punto de venta visitado</th><th>Entrada</th><th>Salida</th></tr></thead>
+      <tbody>${filasVisitas}</tbody>
+    </table>`;
+}
+
 function renderTabla(df) {
   const filasOrdenadas = [...df].sort((a, b) => (a.fecha + a.nombre).localeCompare(b.fecha + b.nombre));
 
@@ -3368,13 +3235,18 @@ function renderTabla(df) {
   const inicio = (paginaActual - 1) * filasPorPagina;
   const filasPagina = filasOrdenadas.slice(inicio, inicio + filasPorPagina);
 
+  const COLSPAN_TOTAL = 12; // Colaborador + Fecha + Entrada + Salida + Estado + Min.desde08 + Descanso + PDV + Ruta + Horas + Jornada + Cobertura
   const tbody = document.querySelector("#tablaAuditoria tbody");
   tbody.innerHTML = filasPagina
-    .map((r) => {
+    .map((r, idx) => {
       const inconsistenciaTitle = r.tiene_inconsistencia ? (r.inconsistencias || []).join("; ") : "";
+      const rowKey = `fila-${idx}`;
       return `
-    <tr class="${r.alerta_exceso_descanso ? "fila-exceso" : ""} ${r.tiene_inconsistencia ? "fila-inconsistente" : ""}">
-      <td class="td-nombre th-sticky">${r.nombre || "Sin datos"}${r.tiene_inconsistencia ? ` <span class="info-icon" title="${inconsistenciaTitle}">⚠</span>` : ""}</td>
+    <tr class="${r.alerta_exceso_descanso ? "fila-exceso" : ""} ${r.tiene_inconsistencia ? "fila-inconsistente" : ""}" data-rowkey="${rowKey}">
+      <td class="td-nombre th-sticky td-expandible" data-toggle="${rowKey}" title="Tocar para ver el detalle de la ruta del día">
+        <span class="expand-icono" aria-hidden="true">▸</span>
+        ${r.nombre || "Sin datos"}${r.tiene_inconsistencia ? ` <span class="info-icon" title="${inconsistenciaTitle}">⚠</span>` : ""}
+      </td>
       <td class="mono">${fechaLegible(r.fecha)}</td>
       <td class="mono">${r.primer_checkin || "—"}</td>
       <td class="mono">${r.ultimo_checkout || (r.tiene_marcacion_abierta ? "Abierta" : "—")}</td>
@@ -3386,9 +3258,24 @@ function renderTabla(df) {
       <td class="mono num">${formatHorasTrabajadas(r.minutos_efectivos)}</td>
       <td>${r.minutos_efectivos === null ? `<span class="muted">—</span>` : r.cumplio_jornada ? `<span class="tag tag-verde">● Cumplida</span>` : `<span class="tag tag-ambar">● Incompleta</span>`}</td>
       <td>${celdaCobertura(r)}</td>
+    </tr>
+    <tr class="fila-detalle-ruta hidden" data-rowkey-detalle="${rowKey}">
+      <td colspan="${COLSPAN_TOTAL}">${filaDetalleRuta(r)}</td>
     </tr>`;
     })
     .join("");
+
+  tbody.querySelectorAll(".td-expandible").forEach((celda) => {
+    celda.addEventListener("click", () => {
+      const key = celda.dataset.toggle;
+      const detalle = tbody.querySelector(`[data-rowkey-detalle="${key}"]`);
+      const icono = celda.querySelector(".expand-icono");
+      if (!detalle) return;
+      const abierta = !detalle.classList.contains("hidden");
+      detalle.classList.toggle("hidden");
+      icono.textContent = abierta ? "▸" : "▾";
+    });
+  });
 
   renderPaginacion(totalFilas, totalPaginas, inicio);
 }

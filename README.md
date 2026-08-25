@@ -137,6 +137,25 @@ del catálogo, recálculo automático, manejo de errores de red), pero conviene
 que confirmes en tu navegador que el enlace publicado responde correctamente
 la primera vez que lo uses.
 
+## Rediseño ejecutivo (para presentar a directorio)
+
+Se reemplazó por completo la identidad visual, sin tocar ninguna regla de
+negocio ni cálculo — es un cambio 100% de `styles.css` (y los pocos colores
+que estaban escritos directo en los gráficos de `app.js` y en el PDF de
+`reportsClient.js`, ahora alineados a la misma paleta):
+
+- **Color**: azul marino profundo (`#16233B`) en vez de negro grafito para
+  la barra lateral; bronce discreto (`#9C7A34`) como acento en vez de ámbar
+  brillante; estados en tonos desaturados (verde bosque, oliva, granate) en
+  vez de los colores semáforo saturados de antes.
+- **Tipografía**: *Georgia* (serif) para títulos, encabezados y etiquetas —
+  el aire de "memoria anual" que se pidió — combinada con una sans de
+  sistema para la interfaz y una monoespaciada para todas las cifras. Son
+  fuentes nativas del sistema operativo: el tablero sigue funcionando sin
+  conexión a internet.
+- Se suavizaron las animaciones de "rebote" al pasar el mouse (menos
+  interacción tipo app de consumo, más estático/formal).
+
 ## Qué cambió en esta revisión
 
 - **Se quitaron 3 gráficos**: "Evolución diaria de asistencia", "Distribución

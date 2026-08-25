@@ -1012,7 +1012,7 @@ const pluginValorAlFinal = {
         if (valor === undefined || valor === null) return;
         ctx.save();
         ctx.font = "600 11px " + FUENTE_MONO;
-        ctx.fillStyle = "#171B22";
+        ctx.fillStyle = "#16233B";
         ctx.textBaseline = "middle";
         if (chart.options.indexAxis === "y") {
           ctx.textAlign = "left";
@@ -1047,7 +1047,7 @@ function renderRanking(df) {
     type: "bar",
     data: {
       labels: entradas.map((e) => e[0]),
-      datasets: [{ label: "Cantidad de tardanzas", data: entradas.map((e) => e[1].total), backgroundColor: "#B23B32", borderRadius: 2, barThickness: 16 }],
+      datasets: [{ label: "Cantidad de tardanzas", data: entradas.map((e) => e[1].total), backgroundColor: "#7B3B36", borderRadius: 2, barThickness: 16 }],
     },
     plugins: [pluginValorAlFinal],
     options: {
@@ -1075,7 +1075,7 @@ function renderRanking(df) {
         x: {
           title: { display: true, text: "Cantidad de tardanzas (número de eventos)", font: { family: FUENTE_UI, size: 10 } },
           ticks: { font: { family: FUENTE_UI, size: 11 }, precision: 0, stepSize: 1 },
-          grid: { color: "#E7E5DC" },
+          grid: { color: "#DEDAD0" },
         },
         y: { ticks: { font: { family: FUENTE_UI, size: 11 }, autoSkip: false }, grid: { display: false } },
       },
@@ -1101,7 +1101,7 @@ function renderMinutosTardanza(df) {
     type: "bar",
     data: {
       labels: entradas.map((e) => e[0]),
-      datasets: [{ label: "Minutos acumulados", data: entradas.map((e) => e[1].minutos), backgroundColor: "#E1962E", borderRadius: 2, barThickness: 16 }],
+      datasets: [{ label: "Minutos acumulados", data: entradas.map((e) => e[1].minutos), backgroundColor: "#9C7A34", borderRadius: 2, barThickness: 16 }],
     },
     plugins: [pluginValorAlFinal],
     options: {
@@ -1129,7 +1129,7 @@ function renderMinutosTardanza(df) {
         x: {
           title: { display: true, text: "Minutos", font: { family: FUENTE_UI, size: 10 } },
           ticks: { font: { family: FUENTE_MONO, size: 10 } },
-          grid: { color: "#E7E5DC" },
+          grid: { color: "#DEDAD0" },
         },
         y: { ticks: { font: { family: FUENTE_UI, size: 11 }, autoSkip: false }, grid: { display: false } },
       },

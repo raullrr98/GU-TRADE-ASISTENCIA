@@ -159,7 +159,7 @@ function exportarExcelConsolidado(resumenes, marcaciones, etiquetaPeriodo, meta)
 function exportarPdfResumenDiario(registrosDelDia, fecha, limiteDescanso) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "cm", format: "letter" });
-  const azul = [23, 27, 34];
+  const azul = [22, 35, 59]; // #16233B, ink navy ejecutivo
   const [y, m, d] = fecha.split("-");
 
   doc.setFontSize(16);
@@ -224,11 +224,11 @@ function exportarPdfResumenDiario(registrosDelDia, fecha, limiteDescanso) {
       const row = ordenados[data.row.index];
       if (!row) return;
       if (row.clasificacion_puntualidad === ESTADOS.SUPERVISAR || row.tiene_marcacion_abierta) {
-        data.cell.styles.fillColor = [250, 219, 216];
+        data.cell.styles.fillColor = [239, 222, 218]; // #EFDEDA, bad-soft
       } else if (row.clasificacion_puntualidad === ESTADOS.LEVE || row.alerta_exceso_descanso) {
-        data.cell.styles.fillColor = [253, 235, 208];
+        data.cell.styles.fillColor = [239, 231, 211]; // #EFE7D3, warn-soft
       } else if (row.clasificacion_puntualidad === ESTADOS.PUNTUAL) {
-        data.cell.styles.fillColor = [213, 245, 227];
+        data.cell.styles.fillColor = [228, 236, 230]; // #E4ECE6, ok-soft
       }
     },
   });
@@ -241,7 +241,7 @@ function exportarPdfResumenDiario(registrosDelDia, fecha, limiteDescanso) {
       head: [["Inconsistencias detectadas (no se eliminan, quedan marcadas para revisión)"]],
       body: conInconsistencia.map((r) => [`${r.nombre}: ${(r.inconsistencias || []).join("; ")}`]),
       theme: "grid",
-      headStyles: { fillColor: [178, 59, 50], fontSize: 8 },
+      headStyles: { fillColor: [123, 59, 54], fontSize: 8 }, // #7B3B36, bad ejecutivo
       bodyStyles: { fontSize: 7.5 },
       margin: { left: 1.2, right: 1.2 },
     });

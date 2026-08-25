@@ -1,14 +1,37 @@
 // ============================================================================
 // app.js — Orquestador principal, 100% local (sin backend, sin Supabase).
 // Todo el procesamiento y almacenamiento ocurre en este navegador (IndexedDB).
+//
+// Todas las tarjetas, gráficos, tabla, filtros y exportaciones consumen la
+// MISMA fuente de datos (cacheResumen / dfFiltradoActual) y la MISMA función
+// central de clasificación (clasificarPuntualidad, en businessLogic.js), así
+// que es estructuralmente imposible que un componente muestre un estado
+// distinto a otro.
 // ============================================================================
 
-let charts = { ranking: null, evolucion: null, distribucion: null, tendencia: null };
-let cacheResumen = [];
+let charts = { ranking: null, minutosTardanza: null, evolucion: null, distribucion: null, tendencia: null };
+let cacheResumen = []; // dataset completo del/los período(s) seleccionados, SIN filtros de UI
+let dfFiltradoActual = []; // último resultado tras aplicar filtros de UI (usado también por exportación)
 let periodosDisponibles = [];
+let msEmpleado, msEstado, msPdv; // instancias del multiselect propio (ver más abajo)
+let filtroCategoriaInconsistencia = null; // categoría activa al hacer clic en un chip de "Atención requerida"
+let paginaActual = 1;
+let filasPorPagina = 15;
+let ultimoDfTabla = []; // último dataset ya filtrado que alimenta la tabla (para paginar sin recalcular)
+
+const MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+function nombreMes(periodoYYYYMM) {
+  const [y, m] = periodoYYYYMM.split("-");
+  return `${MESES_ES[parseInt(m, 10) - 1]} ${y}`;
+}
+function fechaLegible(fechaISO) {
+  if (!fechaISO) return "—";
+  const [y, m, d] = fechaISO.split("-");
+  return `${d}/${m}/${y}`;
+}
 
 // ---------------------------------------------------------------------------
-// RELOJ DEL ENCABEZADO (detalle de ambientación, sin dependencias)
+// RELOJ DEL ENCABEZADO
 // ---------------------------------------------------------------------------
 function actualizarReloj() {
   const el = document.getElementById("relojHeader");
@@ -21,6 +44,102 @@ function actualizarReloj() {
 setInterval(actualizarReloj, 15000);
 
 // ---------------------------------------------------------------------------
+// SIDEBAR DESPLEGABLE (pantallas pequeñas)
+// ---------------------------------------------------------------------------
+document.getElementById("sidebarToggleBtn").addEventListener("click", () => {
+  const abierto = document.getElementById("sidebar").classList.toggle("abierto");
+  document.getElementById("sidebarToggleBtn").setAttribute("aria-expanded", String(abierto));
+});
+
+// El gráfico "Minutos de tardanza por colaborador" vive dentro de un <details>
+// colapsable. Chart.js no puede calcular el tamaño correcto de un <canvas>
+// que está oculto (display:none) al momento de crearse, así que se le pide
+// que recalcule su tamaño justo cuando la sección se abre.
+document.querySelector(".detalle-tardanzas")?.addEventListener("toggle", (e) => {
+  if (e.target.open && charts.minutosTardanza) {
+    charts.minutosTardanza.resize();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// COMPONENTE: multiselect propio (reemplaza el <select multiple> nativo,
+// cuyo texto de resumen ("0 elementos seleccionados") varía de forma
+// inconsistente entre navegadores y no se puede personalizar de forma fiable).
+// ---------------------------------------------------------------------------
+function crearMultiSelect(rootId, etiquetaTodos) {
+  const root = document.getElementById(rootId);
+  const btn = root.querySelector(".multiselect-btn");
+  const panel = root.querySelector(".multiselect-panel");
+  let opciones = [];
+  let seleccionados = new Set();
+  let onChangeCb = null;
+
+  function actualizarBoton() {
+    if (seleccionados.size === 0) btn.textContent = etiquetaTodos;
+    else if (seleccionados.size === 1) btn.textContent = [...seleccionados][0];
+    else btn.textContent = `${seleccionados.size} seleccionados`;
+    btn.classList.toggle("has-selection", seleccionados.size > 0);
+  }
+
+  function render() {
+    if (!opciones.length) {
+      panel.innerHTML = `<div class="ms-empty muted">Sin opciones para este período</div>`;
+      return;
+    }
+    panel.innerHTML = opciones
+      .map(
+        (op) => `
+      <label class="ms-option">
+        <input type="checkbox" value="${op.replace(/"/g, "&quot;")}" ${seleccionados.has(op) ? "checked" : ""} />
+        <span>${op}</span>
+      </label>`
+      )
+      .join("");
+  }
+
+  panel.addEventListener("change", (e) => {
+    if (e.target.tagName !== "INPUT") return;
+    if (e.target.checked) seleccionados.add(e.target.value);
+    else seleccionados.delete(e.target.value);
+    actualizarBoton();
+    if (onChangeCb) onChangeCb();
+  });
+
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.querySelectorAll(".multiselect-panel").forEach((p) => {
+      if (p !== panel) p.classList.add("hidden");
+    });
+    panel.classList.toggle("hidden");
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!root.contains(e.target)) panel.classList.add("hidden");
+  });
+
+  return {
+    setOpciones(nuevas) {
+      const nuevasSet = new Set(nuevas);
+      seleccionados = new Set([...seleccionados].filter((v) => nuevasSet.has(v)));
+      opciones = nuevas;
+      render();
+      actualizarBoton();
+    },
+    getSeleccionados() {
+      return [...seleccionados];
+    },
+    limpiar() {
+      seleccionados = new Set();
+      render();
+      actualizarBoton();
+    },
+    onChange(cb) {
+      onChangeCb = cb;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // CONFIGURACIÓN DE NEGOCIO
 // ---------------------------------------------------------------------------
 async function cargarConfiguracion() {
@@ -29,8 +148,9 @@ async function cargarConfiguracion() {
   filas.forEach((row) => (cfg[row.clave] = row.valor));
   return {
     horaEntradaTeorica: cfg.hora_entrada_teorica || "08:00",
+    horasJornadaEsperada: parseFloat(cfg.horas_jornada_esperada || "8"),
     toleranciaMin: parseInt(cfg.tolerancia_min || "10", 10),
-    tardanzaLeveMaxMin: parseInt(cfg.tardanza_leve_max_min || "15", 10),
+    tardanzaLeveMaxMin: parseInt(cfg.tardanza_leve_max_min || "29", 10),
     descansoPermitidoMin: parseInt(cfg.descanso_permitido_min || "60", 10),
   };
 }
@@ -38,6 +158,7 @@ async function cargarConfiguracion() {
 async function poblarPanelConfiguracion() {
   const cfg = await cargarConfiguracion();
   document.getElementById("cfgHoraEntrada").value = cfg.horaEntradaTeorica;
+  document.getElementById("cfgHorasJornada").value = cfg.horasJornadaEsperada;
   document.getElementById("cfgTolerancia").value = cfg.toleranciaMin;
   document.getElementById("cfgTardanzaLeve").value = cfg.tardanzaLeveMaxMin;
   document.getElementById("cfgDescanso").value = cfg.descansoPermitidoMin;
@@ -47,29 +168,48 @@ document.getElementById("guardarCfgBtn").addEventListener("click", async () => {
   const statusEl = document.getElementById("cfgStatus");
   statusEl.textContent = "Guardando y recalculando...";
   statusEl.className = "status-msg";
+  const dashboardYaVisible = !document.getElementById("dashboardContent").classList.contains("hidden");
   try {
     await dbPutMany("configuracion", [
       { clave: "hora_entrada_teorica", valor: document.getElementById("cfgHoraEntrada").value.trim() },
+      { clave: "horas_jornada_esperada", valor: document.getElementById("cfgHorasJornada").value },
       { clave: "tolerancia_min", valor: document.getElementById("cfgTolerancia").value },
       { clave: "tardanza_leve_max_min", valor: document.getElementById("cfgTardanzaLeve").value },
       { clave: "descanso_permitido_min", valor: document.getElementById("cfgDescanso").value },
     ]);
     await recalcularTodoElHistorico();
+    const cfg = await cargarConfiguracion();
+    limiteDescansoActual = cfg.descansoPermitidoMin;
     statusEl.textContent = "Configuración guardada y datos recalculados.";
     statusEl.classList.add("ok");
-    await refrescarPeriodosYVista();
+    // Solo se vuelve a mostrar el dashboard si YA estaba visible antes de
+    // guardar; si estaba oculto (aún no se pidió ver el historial), se
+    // recalcula igual en segundo plano pero se mantiene oculto.
+    if (dashboardYaVisible) {
+      await refrescarPeriodosYVista();
+    } else {
+      await refrescarListaDePeriodos();
+    }
   } catch (err) {
     statusEl.textContent = "Error: " + err.message;
     statusEl.classList.add("error");
   }
 });
 
+async function obtenerNombresPorIdEmpleado() {
+  const empleados = await dbGetAll("empleados");
+  return new Map(empleados.map((e) => [e.id_empleado, e.nombre]));
+}
+
 async function recalcularTodoElHistorico() {
   const periodos = await dbGetAll("periodos_cargados");
   const config = await cargarConfiguracion();
+  const asignaciones = await dbGetAll("rutas_asignadas");
+  const nombresPorId = await obtenerNombresPorIdEmpleado();
   for (const { periodo } of periodos) {
     const marcaciones = await dbGetByIndex("marcaciones_detalle", "periodo", periodo);
     const resumenes = calcularResumen(marcaciones, config);
+    evaluarCumplimientoRuta(resumenes, asignaciones, nombresPorId);
     await guardarResumenes(periodo, resumenes);
   }
 }
@@ -95,18 +235,29 @@ let archivoSeleccionado = null;
 document.getElementById("fileInput").addEventListener("change", (e) => {
   archivoSeleccionado = e.target.files[0] || null;
   document.getElementById("procesarBtn").disabled = !archivoSeleccionado;
+  document.getElementById("uploadResumen").classList.add("hidden");
 });
 
 document.getElementById("procesarBtn").addEventListener("click", async () => {
   if (!archivoSeleccionado) return;
   const statusEl = document.getElementById("uploadStatus");
+  const spinnerEl = document.getElementById("uploadSpinner");
+  const resumenEl = document.getElementById("uploadResumen");
   statusEl.textContent = "Leyendo y procesando archivo...";
   statusEl.className = "status-msg";
+  spinnerEl.classList.remove("hidden");
+  resumenEl.classList.add("hidden");
 
   try {
     const arrayBuffer = await archivoSeleccionado.arrayBuffer();
-    const filas = leerYLimpiarExcel(arrayBuffer);
-    if (!filas.length) throw new Error("El archivo no contiene filas válidas.");
+    const { filas, meta } = leerYLimpiarExcel(arrayBuffer);
+    if (!filas.length) {
+      throw new Error(
+        meta.filasTotalesHoja === 0
+          ? "El archivo está vacío o la hoja no contiene filas."
+          : "No se encontraron filas válidas (revisa fechas y columnas obligatorias)."
+      );
+    }
 
     const periodoManual = document.getElementById("periodoManual").value.trim();
     const periodo = periodoManual || detectarPeriodo(filas);
@@ -123,6 +274,7 @@ document.getElementById("procesarBtn").addEventListener("click", async () => {
       id_empleado: f.id_empleado,
       fecha: f.fecha,
       punto_venta: f.punto_venta,
+      id_punto_venta: f.id_punto_venta,
       actividad: f.actividad,
       hora_inicio: f.hora_inicio,
       hora_salida: f.hora_salida,
@@ -132,27 +284,79 @@ document.getElementById("procesarBtn").addEventListener("click", async () => {
     }));
     await dbPutMany("marcaciones_detalle", marcacionesInsert);
 
-    // 3) Registrar el periodo cargado
+    // 3) Calcular reglas de negocio (antes de guardar el período, para poder
+    //    registrar si hubo advertencias reales en el historial de procesos)
+    const config = await cargarConfiguracion();
+    const resumenes = calcularResumen(filas, config);
+
+    // 3a) Si está activada la sincronización automática, intentar traer la
+    //     versión más reciente del catálogo de rutas ANTES de evaluar
+    //     cumplimiento (best-effort: si falla — sin internet, hoja no
+    //     publicada, etc. — se sigue con lo que ya haya guardado localmente).
+    const cfgSync = await dbGetAll("configuracion");
+    const autoSyncActivo = cfgSync.find((c) => c.clave === "rutas_auto_sync")?.valor === "1";
+    if (autoSyncActivo) {
+      await sincronizarRutasDesdeGoogleSheets(true);
+    }
+
+    // 3b) Aplicar cumplimiento de ruta asignada, si hay un catálogo cargado
+    const nombresPorId = new Map(empleadosUnicos.map((e) => [e.id_empleado, e.nombre]));
+    const asignacionesRuta = await dbGetAll("rutas_asignadas");
+    evaluarCumplimientoRuta(resumenes, asignacionesRuta, nombresPorId);
+
+    const inconsistenciasResumen = resumenes.filter((r) => r.tiene_inconsistencia).length;
+    const inconsistenciasTotal =
+      inconsistenciasResumen + meta.fechasInvalidas + meta.horasInvalidas + meta.duplicadosDetectados;
+    const advertencias = [];
+    if (meta.fechasInvalidas > 0) advertencias.push(`${meta.fechasInvalidas} fila(s) con fecha inválida (descartadas)`);
+    if (meta.horasInvalidas > 0) advertencias.push(`${meta.horasInvalidas} fila(s) con hora no interpretable`);
+    if (meta.duplicadosDetectados > 0) advertencias.push(`${meta.duplicadosDetectados} registro(s) duplicado(s) detectado(s)`);
+    if (meta.filasDescartadas > 0) advertencias.push(`${meta.filasDescartadas} fila(s) descartadas por datos incompletos`);
+    if (meta.columnasOpcionalesNoDetectadas && meta.columnasOpcionalesNoDetectadas.length) {
+      advertencias.push(
+        `No se detectó la columna "${meta.columnasOpcionalesNoDetectadas.join('", "')}" — esos datos quedarán vacíos o en 0`
+      );
+    }
+
+    // 4) Registrar el periodo cargado (con dato real de advertencias, para el
+    //    historial de procesos en la barra lateral)
     await dbPut("periodos_cargados", {
       periodo,
       nombre_archivo_original: archivoSeleccionado.name,
       filas_procesadas: marcacionesInsert.length,
       empleados_afectados: empleadosUnicos.length,
       fecha_carga: new Date().toISOString(),
+      inconsistencias_total: inconsistenciasTotal,
+      tiene_advertencias: advertencias.length > 0 || inconsistenciasTotal > 0,
     });
 
-    // 4) Calcular reglas de negocio y guardar resumen diario
-    const config = await cargarConfiguracion();
-    const resumenes = calcularResumen(filas, config);
+    // 5) Guardar resumen diario ya calculado
     await guardarResumenes(periodo, resumenes);
 
-    statusEl.textContent = `Periodo ${periodo}: ${marcacionesInsert.length} filas, ${empleadosUnicos.length} colaboradores procesados.`;
+    // 6) Resumen de carga para el usuario
+    const fechas = filas.map((f) => f.fecha).sort();
+
+    statusEl.textContent = `Carga exitosa: ${periodo}.`;
     statusEl.classList.add("ok");
+
+    resumenEl.classList.remove("hidden");
+    resumenEl.innerHTML = `
+      <div class="ur-item"><span>Archivo</span><strong>${archivoSeleccionado.name}</strong></div>
+      <div class="ur-item"><span>Filas procesadas</span><strong>${filas.length}</strong></div>
+      <div class="ur-item"><span>Colaboradores detectados</span><strong>${empleadosUnicos.length}</strong></div>
+      <div class="ur-item"><span>Fecha inicial</span><strong>${fechaLegible(fechas[0])}</strong></div>
+      <div class="ur-item"><span>Fecha final</span><strong>${fechaLegible(fechas[fechas.length - 1])}</strong></div>
+      <div class="ur-item"><span>Registros válidos</span><strong>${meta.filasValidas} / ${meta.filasTotalesHoja}</strong></div>
+      <div class="ur-item"><span>Inconsistencias detectadas</span><strong>${inconsistenciasTotal}</strong></div>
+      ${advertencias.length ? `<div class="ur-warn">⚠ ${advertencias.join(" · ")}</div>` : ""}
+    `;
 
     await refrescarPeriodosYVista(periodo);
   } catch (err) {
     statusEl.textContent = "Error: " + err.message;
     statusEl.classList.add("error");
+  } finally {
+    spinnerEl.classList.add("hidden");
   }
 });
 
@@ -160,6 +364,155 @@ async function guardarResumenes(periodo, resumenes) {
   await dbDeleteByIndex("asistencia_resumen_diario", "periodo", periodo);
   await dbPutMany("asistencia_resumen_diario", resumenes);
 }
+
+// ---------------------------------------------------------------------------
+// INGESTA DEL CATÁLOGO DE RUTAS ASIGNADAS (archivo aparte, no cambia mes a mes)
+// ---------------------------------------------------------------------------
+let archivoRutasSeleccionado = null;
+
+document.getElementById("fileInputRutas").addEventListener("change", (e) => {
+  archivoRutasSeleccionado = e.target.files[0] || null;
+  document.getElementById("procesarRutasBtn").disabled = !archivoRutasSeleccionado;
+  document.getElementById("rutasResumen").classList.add("hidden");
+});
+
+document.getElementById("procesarRutasBtn").addEventListener("click", async () => {
+  if (!archivoRutasSeleccionado) return;
+  const statusEl = document.getElementById("rutasStatus");
+  const resumenEl = document.getElementById("rutasResumen");
+  statusEl.textContent = "Leyendo archivo de rutas...";
+  statusEl.className = "status-msg";
+  resumenEl.classList.add("hidden");
+
+  try {
+    const arrayBuffer = await archivoRutasSeleccionado.arrayBuffer();
+    const { asignaciones, meta } = leerRutasAsignadas(arrayBuffer);
+    await guardarAsignacionesYRecalcular(asignaciones, meta, archivoRutasSeleccionado.name, resumenEl);
+    statusEl.textContent = "Rutas cargadas correctamente.";
+    statusEl.classList.add("ok");
+  } catch (err) {
+    statusEl.textContent = "Error: " + err.message;
+    statusEl.classList.add("error");
+  }
+});
+
+// Lógica compartida entre "cargar archivo manual" y "sincronizar en vivo":
+// guarda el catálogo de rutas en IndexedDB y recalcula todo el histórico.
+async function guardarAsignacionesYRecalcular(asignaciones, meta, nombreOrigen, resumenEl) {
+  if (!asignaciones.length) {
+    throw new Error("No se encontraron filas válidas (revisa las columnas de Persona y Punto de venta).");
+  }
+
+  await dbClearStore("rutas_asignadas");
+  await dbPutMany("rutas_asignadas", asignaciones);
+
+  const personasConDia = new Set(asignaciones.filter((a) => a.dias.length).map((a) => a.nombre_normalizado)).size;
+
+  if (resumenEl) {
+    resumenEl.classList.remove("hidden");
+    resumenEl.innerHTML = `
+      <div class="ur-item"><span>Origen</span><strong>${nombreOrigen}</strong></div>
+      <div class="ur-item"><span>Filas procesadas</span><strong>${meta.filasValidas} / ${meta.filasTotalesHoja}</strong></div>
+      <div class="ur-item"><span>Personas con ruta por día</span><strong>${personasConDia}</strong></div>
+      <div class="ur-item"><span>Filas sin día (no se evalúan)</span><strong>${meta.filasSinDia}</strong></div>
+    `;
+  }
+
+  // Recalcular todo el histórico ya cargado con el nuevo catálogo de rutas
+  await recalcularTodoElHistorico();
+  const dashboardYaVisible = !document.getElementById("dashboardContent").classList.contains("hidden");
+  if (dashboardYaVisible) await refrescarPeriodosYVista();
+}
+
+// ---------------------------------------------------------------------------
+// SINCRONIZACIÓN EN VIVO CON GOOGLE SHEETS
+// ---------------------------------------------------------------------------
+// La URL debe ser el enlace de exportación CSV de una hoja PUBLICADA de
+// Google Sheets (Archivo → Compartir → Publicar en la web → elegir la hoja
+// específica → formato CSV → copiar enlace). Google sirve ese endpoint con
+// cabeceras CORS abiertas, así que se puede leer directo desde el navegador
+// sin backend propio.
+document.getElementById("rutasSheetUrl").addEventListener("change", async (e) => {
+  await dbPutMany("configuracion", [{ clave: "rutas_sheet_url", valor: e.target.value.trim() }]);
+});
+document.getElementById("rutasAutoSync").addEventListener("change", async (e) => {
+  await dbPutMany("configuracion", [{ clave: "rutas_auto_sync", valor: e.target.checked ? "1" : "0" }]);
+});
+
+async function poblarPanelSincronizacionRutas() {
+  const filas = await dbGetAll("configuracion");
+  const cfg = {};
+  filas.forEach((row) => (cfg[row.clave] = row.valor));
+  document.getElementById("rutasSheetUrl").value = cfg.rutas_sheet_url || "";
+  document.getElementById("rutasAutoSync").checked = cfg.rutas_auto_sync === "1";
+  if (cfg.rutas_ultima_sincronizacion) {
+    const fecha = new Date(cfg.rutas_ultima_sincronizacion);
+    document.getElementById("rutasSyncInfo").textContent =
+      `Última sincronización: ${fecha.toLocaleDateString("es-ES")} ${fecha.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`;
+  }
+}
+
+/**
+ * Descarga la hoja de rutas publicada en Google Sheets (CSV) y actualiza el
+ * catálogo local. Se usa tanto para el botón "Sincronizar ahora" como para
+ * la sincronización automática al procesar un Excel de marcaciones.
+ * @param {boolean} silencioso - si es true, no interrumpe con errores
+ *   visibles (usado en la sincronización automática, best-effort).
+ */
+async function sincronizarRutasDesdeGoogleSheets(silencioso = false) {
+  const url = document.getElementById("rutasSheetUrl").value.trim();
+  if (!url) {
+    if (!silencioso) throw new Error("Pegá primero el enlace de Google Sheets (CSV).");
+    return false;
+  }
+
+  const statusEl = document.getElementById("rutasSyncStatus");
+  const resumenEl = document.getElementById("rutasResumen");
+  if (!silencioso) {
+    statusEl.textContent = "Descargando desde Google Sheets...";
+    statusEl.className = "status-msg";
+  }
+
+  try {
+    const respuesta = await fetch(url, { cache: "no-store" });
+    if (!respuesta.ok) {
+      throw new Error(
+        `Google Sheets respondió con error ${respuesta.status}. Verificá que la hoja esté publicada (Archivo → Compartir → Publicar en la web).`
+      );
+    }
+    const textoCSV = await respuesta.text();
+    const { asignaciones, meta } = leerRutasAsignadasDesdeCSV(textoCSV);
+    await guardarAsignacionesYRecalcular(asignaciones, meta, "Google Sheets (sincronización en vivo)", resumenEl);
+
+    const ahora = new Date().toISOString();
+    await dbPutMany("configuracion", [{ clave: "rutas_ultima_sincronizacion", valor: ahora }]);
+    document.getElementById("rutasSyncInfo").textContent =
+      `Última sincronización: ${new Date(ahora).toLocaleDateString("es-ES")} ${new Date(ahora).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`;
+
+    if (!silencioso) {
+      statusEl.textContent = "Sincronizado correctamente.";
+      statusEl.classList.add("ok");
+    }
+    return true;
+  } catch (err) {
+    // Un fetch() a un dominio que bloquea CORS falla con un TypeError
+    // genérico ("Failed to fetch"), sin detalle — se aclara para que el
+    // usuario sepa que probablemente falta publicar la hoja correctamente.
+    const mensaje =
+      err.message === "Failed to fetch"
+        ? "No se pudo conectar con Google Sheets. Verificá tu conexión a internet y que la hoja esté publicada como CSV (no solo compartida)."
+        : err.message;
+    if (!silencioso) {
+      statusEl.textContent = "Error: " + mensaje;
+      statusEl.classList.add("error");
+    } else {
+      console.warn("Sincronización automática de rutas falló:", mensaje);
+    }
+    return false;
+  }
+}
+
+document.getElementById("sincronizarRutasBtn").addEventListener("click", () => sincronizarRutasDesdeGoogleSheets(false));
 
 // ---------------------------------------------------------------------------
 // SELECTOR DE PERÍODO
@@ -236,14 +589,92 @@ async function obtenerMarcacionesDf(periodo) {
 // ---------------------------------------------------------------------------
 // ORQUESTACIÓN GENERAL DE REFRESCO
 // ---------------------------------------------------------------------------
+// IMPORTANTE: al abrir la pestaña, el dashboard NUNCA se muestra automático
+// aunque ya existan datos guardados en este navegador. Solo aparece cuando:
+//   a) se procesa un Excel con éxito, o
+//   b) el usuario cambia explícitamente el período (radio / selector), o
+//   c) el usuario pulsa "Ver historial guardado" en la pantalla vacía.
+// Esto evita que alguien abra la pestaña y vea de entrada datos de una
+// carga anterior sin haber pedido verlos.
+async function refrescarListaDePeriodos() {
+  await cargarPeriodosDisponibles();
+  poblarSelectoresPeriodo();
+  actualizarEmptyState();
+  renderHistorialProcesos();
+}
+
+function actualizarEmptyState() {
+  const textoEl = document.getElementById("emptyStateTexto");
+  const botonEl = document.getElementById("verHistorialBtn");
+  if (periodosDisponibles.length) {
+    textoEl.innerHTML =
+      "Ya tienes datos guardados en este navegador de cargas anteriores. Sube un Excel nuevo, elige un período en <strong>03 — Período</strong>, o pulsa el botón para verlos.";
+    botonEl.classList.remove("hidden");
+  } else {
+    textoEl.innerHTML = "Carga tu primer Excel mensual desde <strong>01 — Cargar datos</strong> para empezar.";
+    botonEl.classList.add("hidden");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HISTORIAL DE PROCESOS (barra lateral) — usa exclusivamente los períodos
+// realmente guardados en IndexedDB (periodos_cargados). No hay datos de
+// ejemplo/fijos: si no hay cargas, la lista queda vacía con un mensaje.
+// ---------------------------------------------------------------------------
+function renderHistorialProcesos() {
+  const cont = document.getElementById("historialProcesos");
+  if (!cont) return;
+  if (!periodosDisponibles.length) {
+    cont.innerHTML = `<p class="hp-vacio muted small">Sin procesos guardados todavía.</p>`;
+    return;
+  }
+  const ordenados = [...periodosDisponibles].sort((a, b) => (a.fecha_carga < b.fecha_carga ? 1 : -1));
+  cont.innerHTML = ordenados
+    .slice(0, 6)
+    .map((p) => {
+      const fecha = p.fecha_carga ? new Date(p.fecha_carga) : null;
+      const fechaTexto = fecha
+        ? `${fecha.toLocaleDateString("es-ES")} ${fecha.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`
+        : "—";
+      const conAdvertencias = !!p.tiene_advertencias;
+      return `
+      <button type="button" class="hp-item" data-periodo="${p.periodo}" title="Ver ${nombreMes(p.periodo)}">
+        <span class="hp-dot ${conAdvertencias ? "hp-dot-amarillo" : "hp-dot-verde"}"></span>
+        <span class="hp-texto">
+          <span class="hp-estado">${conAdvertencias ? "Con advertencias" : "Proceso completado"}</span>
+          <span class="hp-fecha mono">${fechaTexto}</span>
+        </span>
+        <span class="hp-flecha">›</span>
+      </button>`;
+    })
+    .join("");
+
+  cont.querySelectorAll(".hp-item").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelector('input[name="modoVista"][value="especifico"]').checked = true;
+      document.getElementById("periodoSelect").classList.remove("hidden");
+      document.getElementById("periodoMultiWrap").classList.add("hidden");
+      document.getElementById("periodoSelect").value = btn.dataset.periodo;
+      mostrarDashboard();
+    });
+  });
+}
+
+document.getElementById("actualizarHistorialBtn")?.addEventListener("click", refrescarListaDePeriodos);
+
+document.getElementById("verHistorialBtn").addEventListener("click", () => {
+  mostrarDashboard();
+});
+
 async function refrescarPeriodosYVista(periodoAEnfocar) {
   await cargarPeriodosDisponibles();
   poblarSelectoresPeriodo();
+  renderHistorialProcesos();
   if (periodoAEnfocar) document.getElementById("periodoSelect").value = periodoAEnfocar;
-  await renderizarVistaActual();
+  await mostrarDashboard();
 }
 
-async function renderizarVistaActual() {
+async function mostrarDashboard() {
   if (!periodosDisponibles.length) {
     document.getElementById("emptyState").classList.remove("hidden");
     document.getElementById("dashboardContent").classList.add("hidden");
@@ -258,31 +689,23 @@ async function renderizarVistaActual() {
   aplicarFiltrosYRenderizar();
 }
 
+async function renderizarVistaActual() {
+  await mostrarDashboard();
+}
+
+function obtenerPdvsDeRegistro(r) {
+  if (r.pdvs_secuencia && r.pdvs_secuencia.length) return r.pdvs_secuencia;
+  if (r.lista_pdvs) return r.lista_pdvs.split("; ");
+  return [];
+}
+
 function poblarFiltrosDinamicos(df) {
   const empleados = [...new Set(df.map((r) => r.nombre))].sort();
   const estados = [...new Set(df.map((r) => r.clasificacion_puntualidad))].sort();
-
-  const selEmp = document.getElementById("filtroEmpleado");
-  const valoresEmpPrevios = new Set([...selEmp.selectedOptions].map((o) => o.value));
-  selEmp.innerHTML = "";
-  empleados.forEach((n) => {
-    const opt = document.createElement("option");
-    opt.value = n;
-    opt.textContent = n;
-    opt.selected = valoresEmpPrevios.has(n);
-    selEmp.appendChild(opt);
-  });
-
-  const selEst = document.getElementById("filtroEstado");
-  const valoresEstPrevios = new Set([...selEst.selectedOptions].map((o) => o.value));
-  selEst.innerHTML = "";
-  estados.forEach((e) => {
-    const opt = document.createElement("option");
-    opt.value = e;
-    opt.textContent = e;
-    opt.selected = valoresEstPrevios.has(e);
-    selEst.appendChild(opt);
-  });
+  const pdvs = [...new Set(df.flatMap(obtenerPdvsDeRegistro))].sort();
+  msEmpleado.setOpciones(empleados);
+  msEstado.setOpciones(estados);
+  msPdv.setOpciones(pdvs);
 
   if (df.length) {
     const fechas = df.map((r) => r.fecha).sort();
@@ -292,50 +715,269 @@ function poblarFiltrosDinamicos(df) {
   }
 }
 
-["filtroEmpleado", "filtroFechaDesde", "filtroFechaHasta", "filtroEstado"].forEach((id) => {
-  document.getElementById(id).addEventListener("change", aplicarFiltrosYRenderizar);
+document.getElementById("buscarColaboradorInput").addEventListener("input", () => {
+  paginaActual = 1;
+  aplicarFiltrosYRenderizar();
 });
 
-function aplicarFiltrosYRenderizar() {
-  const empSel = [...document.getElementById("filtroEmpleado").selectedOptions].map((o) => o.value);
-  const estSel = [...document.getElementById("filtroEstado").selectedOptions].map((o) => o.value);
+["filtroFechaDesde", "filtroFechaHasta"].forEach((id) => {
+  document.getElementById(id).addEventListener("change", () => { paginaActual = 1; aplicarFiltrosYRenderizar(); });
+});
+
+document.getElementById("limpiarFiltrosBtn").addEventListener("click", () => {
+  msEmpleado.limpiar();
+  msEstado.limpiar();
+  msPdv.limpiar();
+  document.getElementById("buscarColaboradorInput").value = "";
+  filtroCategoriaInconsistencia = null;
+  paginaActual = 1;
+  if (cacheResumen.length) {
+    const fechas = cacheResumen.map((r) => r.fecha).sort();
+    document.getElementById("filtroFechaDesde").value = fechas[0];
+    document.getElementById("filtroFechaHasta").value = fechas[fechas.length - 1];
+  }
+  aplicarFiltrosYRenderizar();
+});
+
+function actualizarPeriodoAnalizadoLabel(df) {
+  const el = document.getElementById("periodoAnalizadoLabel");
+  const periodos = obtenerPeriodosSeleccionados();
+  const periodosTexto = periodos.map(nombreMes).join(", ");
   const desde = document.getElementById("filtroFechaDesde").value;
   const hasta = document.getElementById("filtroFechaHasta").value;
+  const rango = desde && hasta ? ` · ${fechaLegible(desde)} – ${fechaLegible(hasta)}` : "";
+  el.textContent = `Período analizado: ${periodosTexto || "—"}${rango} · ${df.length} registro(s)`;
 
+  const chip = document.getElementById("headerResumenChip");
+  if (chip) {
+    chip.textContent = periodos.length ? `${periodosTexto} · ${df.length.toLocaleString("es-ES")} registros` : "Sin datos cargados";
+  }
+}
+
+// Categoriza cada mensaje de inconsistencia (generado en businessLogic.js)
+// para la franja "Atención requerida". No hay una segunda regla de negocio
+// acá: solo se interpretan los textos que YA produce calcularResumen().
+function categorizarInconsistencia(msg) {
+  if (msg.startsWith("Falta marcación de entrada")) return "sin_entrada";
+  if (msg.startsWith("Falta marcación de salida")) return "sin_salida";
+  if (msg.startsWith("Descanso excede")) return "descanso_excedido";
+  if (msg.startsWith("Entrada posterior")) return "entrada_post_salida";
+  if (msg.startsWith("Tiempo total del día superior")) return "tiempo_imposible";
+  if (msg.startsWith("Ruta incompleta")) return "ruta_incompleta";
+  return "otras";
+}
+const CATEGORIAS_ATENCION = [
+  { key: "sin_entrada", label: "sin entrada" },
+  { key: "sin_salida", label: "marcación abierta" },
+  { key: "descanso_excedido", label: "descansos excedidos" },
+  { key: "entrada_post_salida", label: "entrada posterior a la salida" },
+  { key: "tiempo_imposible", label: "tiempo > 24 h" },
+  { key: "ruta_incompleta", label: "rutas incompletas" },
+  { key: "otras", label: "otras inconsistencias" },
+];
+
+function aplicarFiltrosYRenderizar() {
+  const empSel = msEmpleado.getSeleccionados();
+  const estSel = msEstado.getSeleccionados();
+  const pdvSel = msPdv.getSeleccionados();
+  const desde = document.getElementById("filtroFechaDesde").value;
+  const hasta = document.getElementById("filtroFechaHasta").value;
+  const textoBusqueda = document.getElementById("buscarColaboradorInput").value.trim().toLowerCase();
+
+  // df: dataset con TODOS los filtros excepto la categoría de "Atención
+  // requerida" — es el que alimenta KPIs, gráficos y los conteos de la
+  // propia franja de atención (para que el conteo no se reduzca a sí mismo
+  // al hacer clic en una categoría).
   let df = cacheResumen;
   if (empSel.length) df = df.filter((r) => empSel.includes(r.nombre));
   if (estSel.length) df = df.filter((r) => estSel.includes(r.clasificacion_puntualidad));
+  if (pdvSel.length) df = df.filter((r) => obtenerPdvsDeRegistro(r).some((p) => pdvSel.includes(p)));
   if (desde) df = df.filter((r) => r.fecha >= desde);
   if (hasta) df = df.filter((r) => r.fecha <= hasta);
+  if (textoBusqueda) df = df.filter((r) => (r.nombre || "").toLowerCase().includes(textoBusqueda));
+
+  actualizarPeriodoAnalizadoLabel(df);
+
+  const sinResultadosEl = document.getElementById("sinResultados");
+  const contenidoEl = document.getElementById("contenidoFiltrado");
+  if (!df.length) {
+    sinResultadosEl.classList.remove("hidden");
+    contenidoEl.classList.add("hidden");
+    dfFiltradoActual = df;
+    return;
+  }
+  sinResultadosEl.classList.add("hidden");
+  contenidoEl.classList.remove("hidden");
 
   renderKPIs(df);
   renderGraficos(df);
-  renderTabla(df);
+  renderAtencionRequerida(df);
+
+  // dfTabla: el mismo df, más la categoría de inconsistencia si hay una
+  // activa (clic en un chip de "Atención requerida"). La exportación a Excel
+  // usa este mismo dataset, para que Excel y tabla siempre coincidan.
+  let dfTabla = df;
+  if (filtroCategoriaInconsistencia) {
+    dfTabla = dfTabla.filter((r) =>
+      (r.inconsistencias || []).some((m) => categorizarInconsistencia(m) === filtroCategoriaInconsistencia)
+    );
+  }
+  dfFiltradoActual = dfTabla;
+  ultimoDfTabla = dfTabla;
+  if (paginaActual < 1) paginaActual = 1;
+  renderTabla(dfTabla);
+}
+
+function renderAtencionRequerida(df) {
+  const cont = document.getElementById("atencionRequerida");
+  if (!cont) return;
+  const conteoPorCategoria = {};
+  CATEGORIAS_ATENCION.forEach((c) => (conteoPorCategoria[c.key] = 0));
+  let totalUnico = 0;
+  df.forEach((r) => {
+    if (!r.tiene_inconsistencia) return;
+    totalUnico += 1;
+    const categoriasDeEstaFila = new Set((r.inconsistencias || []).map(categorizarInconsistencia));
+    categoriasDeEstaFila.forEach((cat) => {
+      conteoPorCategoria[cat] = (conteoPorCategoria[cat] || 0) + 1;
+    });
+  });
+
+  if (totalUnico === 0) {
+    cont.className = "atencion-requerida atencion-ok";
+    cont.innerHTML = `<span class="atencion-check" aria-hidden="true">✓</span> Sin casos críticos en el período analizado`;
+    filtroCategoriaInconsistencia = null;
+    return;
+  }
+
+  cont.className = "atencion-requerida atencion-alerta";
+  const chips = CATEGORIAS_ATENCION.filter((c) => conteoPorCategoria[c.key] > 0)
+    .map(
+      (c) => `
+      <button type="button" class="atencion-chip${filtroCategoriaInconsistencia === c.key ? " activo" : ""}" data-cat="${c.key}">
+        <strong>${conteoPorCategoria[c.key]}</strong> ${c.label}
+      </button>`
+    )
+    .join("");
+
+  cont.innerHTML = `
+    <div class="atencion-titulo"><span aria-hidden="true">⚠</span> ATENCIÓN REQUERIDA <span class="atencion-total">· ${totalUnico} caso(s)</span></div>
+    <div class="atencion-chips">
+      ${chips}
+      ${filtroCategoriaInconsistencia ? `<button type="button" class="atencion-chip atencion-quitar" id="atencionQuitarFiltro">Quitar filtro ✕</button>` : ""}
+    </div>
+  `;
+
+  cont.querySelectorAll(".atencion-chip[data-cat]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const cat = btn.dataset.cat;
+      filtroCategoriaInconsistencia = filtroCategoriaInconsistencia === cat ? null : cat;
+      paginaActual = 1;
+      aplicarFiltrosYRenderizar();
+      const toolbarEl = document.getElementById("auditoriaToolbar");
+      if (toolbarEl && typeof toolbarEl.scrollIntoView === "function") {
+        toolbarEl.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+  });
+  const btnQuitar = document.getElementById("atencionQuitarFiltro");
+  if (btnQuitar) {
+    btnQuitar.addEventListener("click", () => {
+      filtroCategoriaInconsistencia = null;
+      aplicarFiltrosYRenderizar();
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
-// KPIs
+// KPIs — cada tarjeta separa claramente cantidad / minutos / porcentaje
 // ---------------------------------------------------------------------------
 function renderKPIs(df) {
   const totalColaboradores = new Set(df.map((r) => r.id_empleado)).size;
   const totalDias = df.length;
-  const puntuales = df.filter((r) => r.clasificacion_puntualidad === "Puntual").length;
+  const puntuales = df.filter((r) => r.clasificacion_puntualidad === ESTADOS.PUNTUAL).length;
   const pctPuntualidad = totalDias ? ((puntuales / totalDias) * 100).toFixed(1) : "0.0";
-  const totalTardanzas = df.filter((r) => ["Tardanza Leve", "Tardanza Grave"].includes(r.clasificacion_puntualidad)).length;
-  const minutosPerdidos = df.reduce((acc, r) => acc + (r.minutos_tardanza || 0), 0);
-  const promPdvs = totalDias ? (df.reduce((acc, r) => acc + (r.pdvs_unicos_visitados || 0), 0) / totalDias).toFixed(1) : "0.0";
+
+  const filasTardanza = df.filter((r) => esTardanza(r.clasificacion_puntualidad));
+  const cantidadTardanzas = filasTardanza.length;
+
+  const filasConHoras = df.filter((r) => r.minutos_efectivos !== null && r.minutos_efectivos !== undefined);
+  const promMinutosEfectivos = filasConHoras.length
+    ? filasConHoras.reduce((acc, r) => acc + r.minutos_efectivos, 0) / filasConHoras.length
+    : null;
+  const cantidadJornadaIncompleta = filasConHoras.filter((r) => !r.cumplio_jornada).length;
+
+  const ICONOS = {
+    personas: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/><circle cx="17" cy="9" r="2.6"/><path d="M15.8 14.2c2.8.4 5.2 2.4 5.2 5.8"/></svg>',
+    check: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9.2"/><path d="m8 12.5 2.6 2.6L16.5 9"/></svg>',
+    alerta: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9.2"/><path d="M12 7v6"/><circle cx="12" cy="16.3" r="0.9" fill="currentColor" stroke="none"/></svg>',
+    reloj: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9.2"/><path d="M12 7v5.2l3.6 2.1"/></svg>',
+    salida: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 4H5v16h5"/><path d="M14 8l5 4-5 4"/><path d="M19 12H9"/></svg>',
+  };
+
+  const cfg2 = document.getElementById("cfgHorasJornada")?.value || "8";
 
   const kpis = [
-    { label: "Colaboradores", value: totalColaboradores },
-    { label: "Puntualidad", value: `${pctPuntualidad}%` },
-    { label: "Tardanzas", value: totalTardanzas },
-    { label: "Min. Perdidos", value: minutosPerdidos },
-    { label: "PDVs / Día", value: promPdvs },
+    {
+      titulo: "Colaboradores",
+      valor: totalColaboradores,
+      unidad: "",
+      icono: ICONOS.personas,
+      claseIcono: "kpi-icono-neutro",
+      desc: "Colaboradores distintos en el período filtrado.",
+      tooltip: "Cantidad de colaboradores diferentes con al menos un registro dentro de los filtros aplicados.",
+    },
+    {
+      titulo: "Puntualidad",
+      valor: `${pctPuntualidad}%`,
+      unidad: "",
+      icono: ICONOS.check,
+      claseIcono: "kpi-icono-verde",
+      desc: "Entradas hasta las 08:10.",
+      tooltip: "Porcentaje de entradas registradas hasta las 08:10 inclusive, considerando los filtros aplicados. Es un porcentaje, no una cantidad.",
+    },
+    {
+      titulo: "Cantidad de tardanzas",
+      valor: cantidadTardanzas,
+      unidad: "eventos",
+      icono: ICONOS.alerta,
+      claseIcono: "kpi-icono-rojo",
+      desc: "Llegadas desde las 08:11.",
+      tooltip: "Número de entradas registradas desde las 08:11 (Tardanza Leve o Tardanza a Supervisar). No representa minutos, representa eventos.",
+    },
+    {
+      titulo: "Horas efectivas",
+      valor: promMinutosEfectivos === null ? "—" : formatHorasTrabajadas(promMinutosEfectivos),
+      unidad: promMinutosEfectivos === null ? "" : "promedio/día",
+      icono: ICONOS.reloj,
+      claseIcono: "kpi-icono-ambar",
+      desc: `Entrada a salida, sin contar el descanso. Jornada obligatoria: ${cfg2} h.`,
+      tooltip: "Promedio de horas efectivas trabajadas por día: diferencia entre el primer check-in y el último check-out, descontando el descanso. Solo considera días con entrada y salida completas (sin marcación abierta).",
+    },
+    {
+      titulo: "Jornada incompleta",
+      valor: cantidadJornadaIncompleta,
+      unidad: "días",
+      icono: ICONOS.salida,
+      claseIcono: cantidadJornadaIncompleta > 0 ? "kpi-icono-rojo" : "kpi-icono-verde",
+      desc: `Días con menos de ${cfg2} h efectivas trabajadas.`,
+      tooltip: "Cantidad de días en los que las horas efectivas trabajadas (entrada a salida, sin contar el descanso) fueron menores a la jornada obligatoria configurada.",
+    },
   ];
 
   const row = document.getElementById("kpiRow");
   row.innerHTML = kpis
-    .map((k) => `<div class="kpi-stub"><div class="kpi-label">${k.label}</div><div class="kpi-value">${k.value}</div></div>`)
+    .map(
+      (k) => `
+    <div class="kpi-stub">
+      <div class="kpi-top">
+        <div class="kpi-label">${k.titulo}</div>
+        <span class="kpi-icono ${k.claseIcono}" aria-hidden="true">${k.icono}</span>
+      </div>
+      <div class="kpi-value${String(k.valor).length > 8 ? " valor-largo" : ""}">${k.valor}${k.unidad ? ` <span class="kpi-unidad">${k.unidad}</span>` : ""}</div>
+      <div class="kpi-desc">${k.desc} <span class="info-icon" title="${k.tooltip}">ⓘ</span></div>
+    </div>`
+    )
     .join("");
 }
 
@@ -351,35 +993,154 @@ function destruirChart(nombre) {
 
 function renderGraficos(df) {
   renderRanking(df);
+  renderMinutosTardanza(df);
   renderEvolucion(df);
   renderDistribucion(df);
   renderTendencia();
 }
 
-const FUENTE_UI = "Inter, sans-serif";
+const FUENTE_UI = "Arial, sans-serif";
+const FUENTE_MONO = "Arial, sans-serif";
+const COLOR_ESTADO = {
+  [ESTADOS.PUNTUAL]: "#3C8F63",
+  [ESTADOS.LEVE]: "#C98A2B",
+  [ESTADOS.SUPERVISAR]: "#B23B32",
+  [ESTADOS.SIN_ENTRADA]: "#8A8F98",
+};
+
+// Plugin propio (sin dependencias externas) para dibujar el valor al final
+// de cada barra horizontal — evita depender de chartjs-plugin-datalabels.
+const pluginValorAlFinal = {
+  id: "valorAlFinal",
+  afterDatasetsDraw(chart) {
+    const { ctx } = chart;
+    chart.data.datasets.forEach((dataset, di) => {
+      const meta = chart.getDatasetMeta(di);
+      meta.data.forEach((bar, i) => {
+        const valor = dataset.data[i];
+        if (valor === undefined || valor === null) return;
+        ctx.save();
+        ctx.font = "600 11px " + FUENTE_MONO;
+        ctx.fillStyle = "#171B22";
+        ctx.textBaseline = "middle";
+        if (chart.options.indexAxis === "y") {
+          ctx.textAlign = "left";
+          ctx.fillText(String(valor), bar.x + 6, bar.y);
+        } else {
+          ctx.textAlign = "center";
+          ctx.fillText(String(valor), bar.x, bar.y - 8);
+        }
+        ctx.restore();
+      });
+    });
+  },
+};
 
 function renderRanking(df) {
   destruirChart("ranking");
-  const conteo = new Map();
-  df.filter((r) => ["Tardanza Leve", "Tardanza Grave"].includes(r.clasificacion_puntualidad)).forEach((r) => {
-    conteo.set(r.nombre, (conteo.get(r.nombre) || 0) + 1);
+  const stats = new Map(); // nombre -> {total, leve, supervisar, minutos}
+  df.filter((r) => esTardanza(r.clasificacion_puntualidad)).forEach((r) => {
+    if (!stats.has(r.nombre)) stats.set(r.nombre, { total: 0, leve: 0, supervisar: 0, minutos: 0 });
+    const s = stats.get(r.nombre);
+    s.total += 1;
+    if (r.clasificacion_puntualidad === ESTADOS.LEVE) s.leve += 1;
+    if (r.clasificacion_puntualidad === ESTADOS.SUPERVISAR) s.supervisar += 1;
+    s.minutos += r.minutos_tardanza || 0;
   });
-  const entradas = [...conteo.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const entradas = [...stats.entries()].sort((a, b) => b[1].total - a[1].total);
   const ctx = document.getElementById("chartRanking");
+  const alturaPorBarra = 28;
+  ctx.parentElement.style.height = `${Math.max(220, entradas.length * alturaPorBarra + 60)}px`;
+
   charts.ranking = new Chart(ctx, {
     type: "bar",
     data: {
       labels: entradas.map((e) => e[0]),
-      datasets: [{ label: "Tardanzas", data: entradas.map((e) => e[1]), backgroundColor: "#B23B32", borderRadius: 2, barThickness: 14 }],
+      datasets: [{ label: "Cantidad de tardanzas", data: entradas.map((e) => e[1].total), backgroundColor: "#B23B32", borderRadius: 2, barThickness: 16 }],
     },
+    plugins: [pluginValorAlFinal],
     options: {
       indexAxis: "y",
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      layout: { padding: { right: 24 } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (item) => {
+              const s = entradas[item.dataIndex][1];
+              return [
+                `Cantidad de tardanzas: ${s.total}`,
+                `  Tardanza leve: ${s.leve}`,
+                `  Tardanza a supervisar: ${s.supervisar}`,
+                `Minutos acumulados: ${formatMinutos(s.minutos, { conEquivalencia: true })}`,
+              ];
+            },
+          },
+        },
+      },
       scales: {
-        x: { ticks: { font: { family: FUENTE_UI, size: 11 } }, grid: { color: "#E7E5DC" } },
-        y: { ticks: { font: { family: FUENTE_UI, size: 11 } }, grid: { display: false } },
+        x: {
+          title: { display: true, text: "Cantidad de tardanzas (número de eventos)", font: { family: FUENTE_UI, size: 10 } },
+          ticks: { font: { family: FUENTE_UI, size: 11 }, precision: 0, stepSize: 1 },
+          grid: { color: "#E7E5DC" },
+        },
+        y: { ticks: { font: { family: FUENTE_UI, size: 11 }, autoSkip: false }, grid: { display: false } },
+      },
+    },
+  });
+}
+
+function renderMinutosTardanza(df) {
+  destruirChart("minutosTardanza");
+  const stats = new Map(); // nombre -> {minutos, cantidad}
+  df.filter((r) => esTardanza(r.clasificacion_puntualidad)).forEach((r) => {
+    if (!stats.has(r.nombre)) stats.set(r.nombre, { minutos: 0, cantidad: 0 });
+    const s = stats.get(r.nombre);
+    s.minutos += r.minutos_tardanza || 0;
+    s.cantidad += 1;
+  });
+  const entradas = [...stats.entries()].sort((a, b) => b[1].minutos - a[1].minutos);
+  const ctx = document.getElementById("chartMinutosTardanza");
+  const alturaPorBarra = 28;
+  ctx.parentElement.style.height = `${Math.max(220, entradas.length * alturaPorBarra + 60)}px`;
+
+  charts.minutosTardanza = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: entradas.map((e) => e[0]),
+      datasets: [{ label: "Minutos acumulados", data: entradas.map((e) => e[1].minutos), backgroundColor: "#E1962E", borderRadius: 2, barThickness: 16 }],
+    },
+    plugins: [pluginValorAlFinal],
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: { right: 24 } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (item) => {
+              const s = entradas[item.dataIndex][1];
+              const promedio = s.cantidad ? Math.round(s.minutos / s.cantidad) : 0;
+              return [
+                `Minutos acumulados: ${formatMinutos(s.minutos, { conEquivalencia: true })}`,
+                `Cantidad de tardanzas: ${s.cantidad}`,
+                `Promedio por tardanza: ${formatMinutos(promedio)}`,
+              ];
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          title: { display: true, text: "Minutos", font: { family: FUENTE_UI, size: 10 } },
+          ticks: { font: { family: FUENTE_MONO, size: 10 } },
+          grid: { color: "#E7E5DC" },
+        },
+        y: { ticks: { font: { family: FUENTE_UI, size: 11 }, autoSkip: false }, grid: { display: false } },
       },
     },
   });
@@ -394,19 +1155,18 @@ function renderEvolucion(df) {
     obj[r.clasificacion_puntualidad] = (obj[r.clasificacion_puntualidad] || 0) + 1;
   });
   const fechas = [...porFechaEstado.keys()].sort();
-  const estados = ["Puntual", "Tardanza Leve", "Tardanza Grave", "Sin Entrada"];
-  const colores = { Puntual: "#3C8F63", "Tardanza Leve": "#C98A2B", "Tardanza Grave": "#B23B32", "Sin Entrada": "#8A8F98" };
+  const estados = [ESTADOS.PUNTUAL, ESTADOS.LEVE, ESTADOS.SUPERVISAR, ESTADOS.SIN_ENTRADA];
 
   const ctx = document.getElementById("chartEvolucion");
   charts.evolucion = new Chart(ctx, {
     type: "line",
     data: {
-      labels: fechas,
+      labels: fechas.map(fechaLegible),
       datasets: estados.map((est) => ({
         label: est,
         data: fechas.map((f) => (porFechaEstado.get(f)[est] || 0)),
-        borderColor: colores[est],
-        backgroundColor: colores[est],
+        borderColor: COLOR_ESTADO[est],
+        backgroundColor: COLOR_ESTADO[est],
         tension: 0.25,
         pointRadius: 2,
       })),
@@ -414,10 +1174,27 @@ function renderEvolucion(df) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { font: { family: FUENTE_UI, size: 10 }, boxWidth: 10 } } },
+      plugins: {
+        legend: { labels: { font: { family: FUENTE_UI, size: 10 }, boxWidth: 10 } },
+        tooltip: {
+          callbacks: {
+            afterBody: (items) => {
+              const total = items.reduce((acc, it) => acc + (it.parsed.y || 0), 0);
+              return `Total de registros del día: ${total}`;
+            },
+          },
+        },
+      },
       scales: {
-        x: { ticks: { font: { family: "IBM Plex Mono", size: 9 } }, grid: { display: false } },
-        y: { ticks: { font: { family: FUENTE_UI, size: 11 } }, grid: { color: "#E7E5DC" } },
+        x: {
+          ticks: { font: { family: FUENTE_MONO, size: 9 }, maxTicksLimit: 12, autoSkip: true },
+          grid: { display: false },
+        },
+        y: {
+          title: { display: true, text: "Cantidad de colaboradores", font: { family: FUENTE_UI, size: 10 } },
+          ticks: { font: { family: FUENTE_UI, size: 11 }, precision: 0, stepSize: 1 },
+          grid: { color: "#E7E5DC" },
+        },
       },
     },
   });
@@ -428,20 +1205,72 @@ function renderDistribucion(df) {
   const totalPdv = df.reduce((acc, r) => acc + (r.minutos_pdv || 0), 0);
   const totalTraslado = df.reduce((acc, r) => acc + (r.minutos_traslado || 0), 0);
   const totalDescanso = df.reduce((acc, r) => acc + (r.minutos_descanso_total || 0), 0);
+  const totalGeneral = totalPdv + totalTraslado + totalDescanso;
+
+  const datos = [
+    { label: "PDV", minutos: totalPdv, color: "#171B22" },
+    { label: "Traslado", minutos: totalTraslado, color: "#E1962E" },
+    { label: "Descanso", minutos: totalDescanso, color: "#B7B2A3" },
+  ];
+
+  const pluginTotalCentro = {
+    id: "totalCentro",
+    afterDraw(chart) {
+      const { ctx, chartArea } = chart;
+      if (!chartArea) return;
+      const cx = (chartArea.left + chartArea.right) / 2;
+      const cy = (chartArea.top + chartArea.bottom) / 2;
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "600 15px " + FUENTE_MONO;
+      ctx.fillStyle = "#171B22";
+      ctx.fillText(`${totalGeneral} min`, cx, cy - 8);
+      ctx.font = "500 10px " + FUENTE_UI;
+      ctx.fillStyle = "#565F6D";
+      ctx.fillText("total registrado", cx, cy + 10);
+      ctx.restore();
+    },
+  };
 
   const ctx = document.getElementById("chartDistribucion");
   charts.distribucion = new Chart(ctx, {
     type: "doughnut",
     data: {
-      labels: ["PDV", "Traslado", "Descanso"],
-      datasets: [{ data: [totalPdv, totalTraslado, totalDescanso], backgroundColor: ["#171B22", "#E1962E", "#B7B2A3"] }],
+      labels: datos.map((d) => d.label),
+      datasets: [{ data: datos.map((d) => d.minutos), backgroundColor: datos.map((d) => d.color) }],
     },
+    plugins: [pluginTotalCentro],
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { font: { family: FUENTE_UI, size: 11 }, boxWidth: 10 } } },
+      plugins: {
+        legend: { labels: { font: { family: FUENTE_UI, size: 11 }, boxWidth: 10 } },
+        tooltip: {
+          callbacks: {
+            label: (item) => {
+              const d = datos[item.dataIndex];
+              const pct = totalGeneral ? ((d.minutos / totalGeneral) * 100).toFixed(0) : "0";
+              return [
+                `${d.label}`,
+                `${formatMinutos(d.minutos, { conEquivalencia: true })}`,
+                `${pct}% del tiempo registrado`,
+              ];
+            },
+          },
+        },
+      },
     },
   });
+
+  const totalEl = document.getElementById("distribucionTotal");
+  if (totalEl) {
+    const horas = Math.floor(totalGeneral / 60);
+    const resto = totalGeneral % 60;
+    totalEl.textContent = totalGeneral
+      ? `Total analizado: ${totalGeneral} min (${horas} h ${resto} min) · distribución calculada sobre el total de minutos registrados`
+      : "Sin minutos registrados en el período filtrado.";
+  }
 }
 
 async function renderTendencia() {
@@ -460,17 +1289,20 @@ async function renderTendencia() {
   const dfHist = await obtenerResumenDf(todosPeriodos);
   const porPeriodo = new Map();
   dfHist.forEach((r) => {
-    if (!porPeriodo.has(r.periodo)) porPeriodo.set(r.periodo, { total: 0, puntuales: 0, tardanzas: 0 });
+    if (!porPeriodo.has(r.periodo)) porPeriodo.set(r.periodo, { total: 0, puntuales: 0, tardanzas: 0, minutos: 0 });
     const acc = porPeriodo.get(r.periodo);
     acc.total += 1;
-    if (r.clasificacion_puntualidad === "Puntual") acc.puntuales += 1;
-    if (["Tardanza Leve", "Tardanza Grave"].includes(r.clasificacion_puntualidad)) acc.tardanzas += 1;
+    if (r.clasificacion_puntualidad === ESTADOS.PUNTUAL) acc.puntuales += 1;
+    if (esTardanza(r.clasificacion_puntualidad)) {
+      acc.tardanzas += 1;
+      acc.minutos += r.minutos_tardanza || 0;
+    }
   });
   const periodosOrdenados = [...porPeriodo.keys()].sort();
 
   charts.tendencia = new Chart(ctx, {
     data: {
-      labels: periodosOrdenados,
+      labels: periodosOrdenados.map(nombreMes),
       datasets: [
         {
           type: "line",
@@ -482,7 +1314,7 @@ async function renderTendencia() {
         },
         {
           type: "bar",
-          label: "Tardanzas",
+          label: "Cantidad de tardanzas",
           data: periodosOrdenados.map((p) => porPeriodo.get(p).tardanzas),
           backgroundColor: "rgba(225,150,46,0.55)",
           yAxisID: "y1",
@@ -493,11 +1325,34 @@ async function renderTendencia() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { font: { family: FUENTE_UI, size: 10 }, boxWidth: 10 } } },
+      plugins: {
+        legend: { labels: { font: { family: FUENTE_UI, size: 10 }, boxWidth: 10 } },
+        tooltip: {
+          callbacks: {
+            afterBody: (items) => {
+              const p = periodosOrdenados[items[0].dataIndex];
+              const acc = porPeriodo.get(p);
+              return [`Minutos acumulados de tardanza: ${formatMinutos(acc.minutos, { conEquivalencia: true })}`];
+            },
+          },
+        },
+      },
       scales: {
-        x: { ticks: { font: { family: "IBM Plex Mono", size: 10 } }, grid: { display: false } },
-        y: { type: "linear", position: "left", ticks: { font: { family: FUENTE_UI, size: 10 } }, grid: { color: "#E7E5DC" } },
-        y1: { type: "linear", position: "right", ticks: { font: { family: FUENTE_UI, size: 10 } }, grid: { drawOnChartArea: false } },
+        x: { ticks: { font: { family: FUENTE_UI, size: 10 } }, grid: { display: false } },
+        y: {
+          type: "linear",
+          position: "left",
+          title: { display: true, text: "% Puntualidad", font: { family: FUENTE_UI, size: 9 } },
+          ticks: { font: { family: FUENTE_UI, size: 10 } },
+          grid: { color: "#E7E5DC" },
+        },
+        y1: {
+          type: "linear",
+          position: "right",
+          title: { display: true, text: "Cantidad de tardanzas", font: { family: FUENTE_UI, size: 9 } },
+          ticks: { font: { family: FUENTE_UI, size: 10 }, precision: 0 },
+          grid: { drawOnChartArea: false },
+        },
       },
     },
   });
@@ -509,65 +1364,171 @@ async function renderTendencia() {
 function tagEstado(r) {
   if (r.tiene_marcacion_abierta) return `<span class="tag tag-rojo">● Abierta</span>`;
   const map = {
-    "Tardanza Grave": "tag-rojo",
-    "Tardanza Leve": "tag-ambar",
-    "Sin Entrada": "tag-gris",
-    "Puntual": "tag-verde",
+    [ESTADOS.SUPERVISAR]: "tag-rojo",
+    [ESTADOS.LEVE]: "tag-ambar",
+    [ESTADOS.SIN_ENTRADA]: "tag-gris",
+    [ESTADOS.PUNTUAL]: "tag-verde",
   };
   const clase = map[r.clasificacion_puntualidad] || "tag-gris";
   return `<span class="tag ${clase}">● ${r.clasificacion_puntualidad}</span>`;
 }
 
+// Abrevia un nombre de PDV a 3 letras mayúsculas (ej. "Farmacia Norte" -> "FAR")
+// para el modo compacto de la ruta visual, conservando el nombre completo en
+// el tooltip. Si el nombre tiene varias palabras, toma la primera.
+function abreviarPdv(nombre) {
+  const primera = String(nombre).trim().split(/\s+/)[0] || "";
+  return primera.slice(0, 3).toUpperCase();
+}
+
 function tiraDeRuta(r) {
-  const secuencia = r.pdvs_secuencia && r.pdvs_secuencia.length ? r.pdvs_secuencia : (r.lista_pdvs ? r.lista_pdvs.split("; ") : []);
-  if (!secuencia.length) return `<span class="muted">—</span>`;
-  const puntos = secuencia
-    .map(
-      (pdv, i) =>
-        `<span class="ruta-punto" title="${pdv}"></span>${i < secuencia.length - 1 ? '<span class="ruta-linea"></span>' : ""}`
-    )
+  const detalle = r.ruta_detalle && r.ruta_detalle.length
+    ? r.ruta_detalle
+    : (r.pdvs_secuencia && r.pdvs_secuencia.length
+        ? r.pdvs_secuencia.map((pdv) => ({ pdv, minutos: null }))
+        : (r.lista_pdvs ? r.lista_pdvs.split("; ").map((pdv) => ({ pdv, minutos: null })) : []));
+  if (!detalle.length) return `<span class="muted">Sin registro de ruta</span>`;
+  const pasos = detalle
+    .map((parada, i) => {
+      const tooltip = parada.minutos !== null ? `${parada.pdv} — ${formatMinutos(parada.minutos)}` : parada.pdv;
+      return `
+      <span class="ruta-parada" title="${tooltip}">
+        <span class="ruta-punto" aria-hidden="true"></span>
+        <span class="ruta-abrev">${abreviarPdv(parada.pdv)}</span>
+      </span>${i < detalle.length - 1 ? '<span class="ruta-flecha" aria-hidden="true">→</span>' : ""}`;
+    })
     .join("");
-  return `<div class="ruta-strip">${puntos}<span class="ruta-count">${secuencia.length}</span></div>`;
+  return `<div class="ruta-strip">${pasos}<span class="ruta-count">${detalle.length}</span></div>`;
+}
+
+let limiteDescansoActual = 60; // se refresca en arrancarApp() y tras guardar configuración
+
+function celdaCobertura(r) {
+  if (r.ruta_cumplida === null || r.ruta_cumplida === undefined) return `<span class="muted">—</span>`;
+  const total = r.ruta_pdvs_esperados.length;
+  const visitadosCount = total - r.ruta_pdvs_faltantes.length;
+  if (r.ruta_cumplida) return `<span class="tag tag-verde">● ${visitadosCount}/${total}</span>`;
+  const tituloFaltantes = `Faltó visitar: ${r.ruta_pdvs_faltantes.join(", ")}`;
+  return `<span class="tag tag-rojo" title="${tituloFaltantes}">● ${visitadosCount}/${total}</span>`;
 }
 
 function renderTabla(df) {
-  const tbody = document.querySelector("#tablaAuditoria tbody");
   const filasOrdenadas = [...df].sort((a, b) => (a.fecha + a.nombre).localeCompare(b.fecha + b.nombre));
-  tbody.innerHTML = filasOrdenadas
-    .map(
-      (r) => `
-    <tr class="${r.alerta_exceso_descanso ? "fila-exceso" : ""}">
-      <td class="td-nombre">${r.nombre}</td>
-      <td class="mono">${r.fecha}</td>
-      <td class="mono">${r.primer_checkin || "–"}</td>
-      <td class="mono">${r.ultimo_checkout || (r.tiene_marcacion_abierta ? "Abierta" : "–")}</td>
+
+  const totalFilas = filasOrdenadas.length;
+  const totalPaginas = Math.max(1, Math.ceil(totalFilas / filasPorPagina));
+  if (paginaActual > totalPaginas) paginaActual = totalPaginas;
+  if (paginaActual < 1) paginaActual = 1;
+
+  const inicio = (paginaActual - 1) * filasPorPagina;
+  const filasPagina = filasOrdenadas.slice(inicio, inicio + filasPorPagina);
+
+  const tbody = document.querySelector("#tablaAuditoria tbody");
+  tbody.innerHTML = filasPagina
+    .map((r) => {
+      const inconsistenciaTitle = r.tiene_inconsistencia ? (r.inconsistencias || []).join("; ") : "";
+      return `
+    <tr class="${r.alerta_exceso_descanso ? "fila-exceso" : ""} ${r.tiene_inconsistencia ? "fila-inconsistente" : ""}">
+      <td class="td-nombre th-sticky">${r.nombre || "Sin datos"}${r.tiene_inconsistencia ? ` <span class="info-icon" title="${inconsistenciaTitle}">⚠</span>` : ""}</td>
+      <td class="mono">${fechaLegible(r.fecha)}</td>
+      <td class="mono">${r.primer_checkin || "—"}</td>
+      <td class="mono">${r.ultimo_checkout || (r.tiene_marcacion_abierta ? "Abierta" : "—")}</td>
       <td>${tagEstado(r)}</td>
-      <td class="mono num">${r.minutos_tardanza}</td>
-      <td class="mono num">${r.minutos_descanso_total}${r.alerta_exceso_descanso ? ` <span class="exceso">+${r.minutos_exceso_descanso}</span>` : ""}</td>
-      <td class="mono num">${r.pdvs_unicos_visitados}</td>
+      <td class="mono num">${formatMinutos(r.minutos_tardanza)}</td>
+      <td class="mono num">${formatDescanso(r.minutos_descanso_total, limiteDescansoActual)}</td>
+      <td class="mono num">${r.pdvs_unicos_visitados ?? 0}</td>
       <td>${tiraDeRuta(r)}</td>
-    </tr>`
-    )
+      <td class="mono num">${formatHorasTrabajadas(r.minutos_efectivos)}</td>
+      <td>${r.minutos_efectivos === null ? `<span class="muted">—</span>` : r.cumplio_jornada ? `<span class="tag tag-verde">● Cumplida</span>` : `<span class="tag tag-ambar">● Incompleta</span>`}</td>
+      <td>${celdaCobertura(r)}</td>
+    </tr>`;
+    })
     .join("");
+
+  renderPaginacion(totalFilas, totalPaginas, inicio);
 }
 
+function renderPaginacion(totalFilas, totalPaginas, inicio) {
+  const infoEl = document.getElementById("paginacionInfo");
+  const botonesEl = document.getElementById("paginacionBotones");
+  if (!infoEl || !botonesEl) return;
+
+  const desde = totalFilas === 0 ? 0 : inicio + 1;
+  const hasta = Math.min(inicio + filasPorPagina, totalFilas);
+  infoEl.textContent = `Mostrando ${desde} a ${hasta} de ${totalFilas} registro(s)`;
+
+  const paginas = [];
+  const ventana = 2;
+  for (let p = 1; p <= totalPaginas; p++) {
+    if (p === 1 || p === totalPaginas || Math.abs(p - paginaActual) <= ventana) paginas.push(p);
+    else if (paginas[paginas.length - 1] !== "…") paginas.push("…");
+  }
+
+  const botonesHtml = [
+    `<button type="button" class="pg-btn" data-pg="prev" ${paginaActual <= 1 ? "disabled" : ""} aria-label="Página anterior">«</button>`,
+    ...paginas.map((p) =>
+      p === "…"
+        ? `<span class="pg-elipsis">…</span>`
+        : `<button type="button" class="pg-btn${p === paginaActual ? " activo" : ""}" data-pg="${p}">${p}</button>`
+    ),
+    `<button type="button" class="pg-btn" data-pg="next" ${paginaActual >= totalPaginas ? "disabled" : ""} aria-label="Página siguiente">»</button>`,
+  ].join("");
+  botonesEl.innerHTML = botonesHtml;
+
+  botonesEl.querySelectorAll(".pg-btn[data-pg]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const dato = btn.dataset.pg;
+      if (dato === "prev") paginaActual = Math.max(1, paginaActual - 1);
+      else if (dato === "next") paginaActual = Math.min(totalPaginas, paginaActual + 1);
+      else paginaActual = parseInt(dato, 10);
+      renderTabla(ultimoDfTabla);
+    });
+  });
+}
+
+document.getElementById("filasPorPaginaSelect").addEventListener("change", (e) => {
+  filasPorPagina = parseInt(e.target.value, 10) || 15;
+  paginaActual = 1;
+  renderTabla(ultimoDfTabla);
+});
+
 // ---------------------------------------------------------------------------
-// EXPORTACIÓN
+// EXPORTACIÓN (respeta los filtros activos: colaborador, estado, fechas)
 // ---------------------------------------------------------------------------
+function resumenFiltrosActivos() {
+  const empSel = msEmpleado.getSeleccionados();
+  const estSel = msEstado.getSeleccionados();
+  const desde = document.getElementById("filtroFechaDesde").value;
+  const hasta = document.getElementById("filtroFechaHasta").value;
+  return {
+    colaboradores: empSel.length ? empSel.join(", ") : "Todos los colaboradores",
+    estados: estSel.length ? estSel.join(", ") : "Todos los estados",
+    rango: desde && hasta ? `${fechaLegible(desde)} – ${fechaLegible(hasta)}` : "Sin restricción de fecha",
+  };
+}
+
 document.getElementById("exportExcelBtn").addEventListener("click", async () => {
+  if (!dfFiltradoActual.length) {
+    alert("No hay registros para exportar con los filtros actuales.");
+    return;
+  }
   const periodos = obtenerPeriodosSeleccionados();
-  const periodo = periodos[0] || (periodosDisponibles[0] && periodosDisponibles[0].periodo);
-  if (!periodo) return;
-  const resumenes = await obtenerResumenDf([periodo]);
-  const marcaciones = await obtenerMarcacionesDf(periodo);
-  exportarExcelConsolidado(resumenes, marcaciones, periodo);
+  const etiquetaPeriodo = periodos.length === 1 ? periodos[0] : `Comparativa_${periodos.join("-")}`;
+  const marcacionesPorPeriodo = await Promise.all(periodos.map(obtenerMarcacionesDf));
+  const marcaciones = marcacionesPorPeriodo.flat();
+  const metaExport = {
+    periodoTexto: periodos.map(nombreMes).join(", "),
+    filtros: resumenFiltrosActivos(),
+    limiteDescanso: limiteDescansoActual,
+  };
+  exportarExcelConsolidado(dfFiltradoActual, marcaciones, etiquetaPeriodo, metaExport);
 });
 
 document.getElementById("exportPdfBtn").addEventListener("click", () => {
   const fecha = document.getElementById("fechaPdf").value;
   if (!fecha) return;
   const registrosDelDia = cacheResumen.filter((r) => r.fecha === fecha);
-  exportarPdfResumenDiario(registrosDelDia, fecha);
+  exportarPdfResumenDiario(registrosDelDia, fecha, limiteDescansoActual);
 });
 
 // ---------------------------------------------------------------------------
@@ -577,7 +1538,19 @@ async function arrancarApp() {
   actualizarReloj();
   await asegurarConfiguracionInicial();
   await poblarPanelConfiguracion();
-  await refrescarPeriodosYVista();
+  msEmpleado = crearMultiSelect("msEmpleado", "Todos los colaboradores");
+  msEstado = crearMultiSelect("msEstado", "Todos los estados");
+  msPdv = crearMultiSelect("msPdv", "Todos los PDV");
+  msEmpleado.onChange(() => { paginaActual = 1; aplicarFiltrosYRenderizar(); });
+  msEstado.onChange(() => { paginaActual = 1; aplicarFiltrosYRenderizar(); });
+  msPdv.onChange(() => { paginaActual = 1; aplicarFiltrosYRenderizar(); });
+  const cfg = await cargarConfiguracion();
+  limiteDescansoActual = cfg.descansoPermitidoMin;
+  await poblarPanelSincronizacionRutas();
+  // Solo se cargan los períodos disponibles para poblar los selectores; el
+  // dashboard permanece oculto hasta que el usuario suba un Excel, cambie el
+  // período, o pulse "Ver historial guardado".
+  await refrescarListaDePeriodos();
 }
 
 arrancarApp();

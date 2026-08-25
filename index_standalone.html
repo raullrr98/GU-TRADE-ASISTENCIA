@@ -1,0 +1,3505 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GU TRADE · Control de Asistencia y Rutas</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+<style>
+:root {
+  --ink: #17191c;
+  --ink-soft: #5c6066;
+  --paper: #f1efe9;
+  --paper-soft: #ffffff;
+  --line: #d9d5cc;
+  --amber: #d99a27;
+  --amber-deep: #a96f0b;
+  --ok: #2e8b57;
+  --ok-soft: #dcefdc;
+  --warn: #b8842a;
+  --warn-soft: #fff0c2;
+  --bad: #b4473e;
+  --bad-soft: #f8d8d4;
+  --gris-tag: #7a7d80;
+
+  --f-display: Arial, "Helvetica Neue", Helvetica, sans-serif;
+  --f-ui: Arial, "Helvetica Neue", Helvetica, sans-serif;
+  --f-mono: Arial, "Helvetica Neue", Helvetica, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--f-ui);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+:focus-visible { outline: 2px solid var(--amber-deep); outline-offset: 2px; }
+
+.hidden { display: none !important; }
+.muted { color: var(--ink-soft); }
+.small { font-size: 0.8rem; }
+.mono { font-family: var(--f-mono); }
+
+.eyebrow {
+  font-family: var(--f-display);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+/* ---------- Layout ---------- */
+.app-layout { display: flex; min-height: 100vh; }
+
+.sidebar-toggle {
+  display: none; position: fixed; top: 0.8rem; left: 0.8rem; z-index: 50;
+  width: 40px; height: 40px; border-radius: 4px; border: none;
+  background: var(--ink); color: #fff; font-size: 1.2rem; cursor: pointer;
+}
+
+.sidebar {
+  width: 300px; background: var(--ink); color: #E7E5DC;
+  padding: 1.4rem 1.2rem; display: flex; flex-direction: column; gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.brand { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1rem; }
+.brand-mark {
+  background: var(--amber); color: var(--ink); width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center; border-radius: 4px;
+}
+.brand-name { font-family: var(--f-display); font-weight: 700; font-size: 1.15rem; letter-spacing: 0.04em; }
+.brand-sub { font-size: 0.72rem; color: #9AA0AC; letter-spacing: 0.03em; }
+
+.rail-panel { border-top: 1px solid #2B303A; padding: 0.2rem 0; }
+.rail-panel summary {
+  cursor: pointer; font-family: var(--f-display); text-transform: uppercase; letter-spacing: 0.05em;
+  font-weight: 600; font-size: 0.85rem; padding: 0.55rem 0; color: #D8D6CC;
+  list-style: none; display: flex; align-items: center; gap: 0.5rem;
+  transition: color 0.15s ease;
+}
+.rail-panel summary:hover { color: #fff; }
+.rail-panel summary::-webkit-details-marker { display: none; }
+.rail-icon { color: var(--amber); font-size: 1rem; width: 1.1em; text-align: center; flex-shrink: 0; }
+
+.rail-body { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.3rem 0 0.9rem; }
+.rail-body .eyebrow { color: #9AA0AC; margin-top: 0.2rem; }
+.rail-body input[type="text"], .rail-body input[type="number"], .rail-body select {
+  padding: 0.5rem 0.6rem; border: 1px solid #333A46; border-radius: 4px; width: 100%;
+  background: #1F242D; color: #E7E5DC; font-family: var(--f-ui); font-size: 0.85rem;
+}
+.rail-body input[type="file"] { color: #D8D6CC; font-size: 0.8rem; }
+.btn-link-anchor { display: inline-block; text-decoration: none; text-align: center; }
+
+.radio-group { display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.88rem; color: #D8D6CC; }
+
+.btn-flag, .btn-ghost, .btn-text {
+  cursor: pointer; border-radius: 4px; padding: 0.6rem 0.9rem; font-weight: 600; font-size: 0.85rem;
+  border: none; font-family: var(--f-ui); transition: filter 0.15s ease, transform 0.1s ease;
+}
+.btn-flag:hover, .btn-ghost:hover { filter: brightness(1.08); }
+.btn-flag:active, .btn-ghost:active { transform: translateY(1px); }
+.btn-flag { background: var(--amber); color: #241a05; border-left: 4px solid var(--amber-deep); }
+.btn-flag:disabled { background: #4A4F58; color: #9AA0AC; border-left-color: #3A3F48; cursor: not-allowed; filter: none; }
+.btn-ghost { background: #232830; color: #E7E5DC; border: 1px solid #333A46; }
+.btn-text { background: none; color: #9AA0AC; text-decoration: underline; font-size: 0.78rem; margin-top: auto; text-align: left; padding: 0.4rem 0; }
+.btn-icon-text { background: none; border: 1px solid #333A46; color: #D8D6CC; border-radius: 4px; width: 26px; height: 26px; cursor: pointer; }
+
+.status-msg { font-size: 0.78rem; min-height: 1.1em; }
+.status-msg.ok { color: #6FCB9A; }
+.status-msg.error { color: #E88A82; }
+
+.upload-status-row { display: flex; align-items: center; gap: 0.5rem; }
+.spinner {
+  width: 14px; height: 14px; border: 2px solid #3A3F48; border-top-color: var(--amber);
+  border-radius: 50%; animation: girar 0.7s linear infinite; flex-shrink: 0;
+}
+@keyframes girar { to { transform: rotate(360deg); } }
+
+.upload-resumen {
+  background: #1F242D; border: 1px solid #333A46; border-radius: 4px; padding: 0.6rem 0.7rem;
+  margin-top: 0.4rem; font-size: 0.76rem; display: flex; flex-direction: column; gap: 0.25rem;
+}
+.ur-item { display: flex; justify-content: space-between; gap: 0.5rem; color: #B8BEC8; }
+.ur-item strong { color: #E7E5DC; font-family: var(--f-mono); font-weight: 600; }
+.ur-warn { color: #E8B25E; margin-top: 0.2rem; }
+
+.rail-footnote { font-size: 0.7rem; color: #6E7480; line-height: 1.4; margin: 0; }
+.rail-divider {
+  font-size: 0.7rem; color: #6E7480; text-align: center; margin: 0.3rem 0;
+  position: relative; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.rail-divider::before, .rail-divider::after {
+  content: ""; position: absolute; top: 50%; width: 30%; height: 1px; background: #2B303A;
+}
+.rail-divider::before { left: 0; }
+.rail-divider::after { right: 0; }
+
+/* ---------- Historial de procesos (barra lateral) ---------- */
+.rail-historial { border-top: 1px solid #2B303A; padding-top: 0.6rem; }
+.rail-historial-header { display: flex; align-items: center; justify-content: space-between; padding: 0.2rem 0; }
+.rail-historial .rail-body { padding-top: 0.5rem; gap: 0.4rem; }
+.hp-vacio { padding: 0.3rem 0; }
+.hp-item {
+  display: flex; align-items: center; gap: 0.55rem; width: 100%; text-align: left;
+  background: #1F242D; border: 1px solid #2B303A; border-radius: 4px; padding: 0.5rem 0.6rem;
+  cursor: pointer; color: #E7E5DC; transition: background 0.15s ease;
+}
+.hp-item:hover { background: #262c37; }
+.hp-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.hp-dot-verde { background: var(--ok); }
+.hp-dot-amarillo { background: var(--warn); }
+.hp-texto { display: flex; flex-direction: column; gap: 0.1rem; flex: 1; min-width: 0; }
+.hp-estado { font-size: 0.78rem; font-weight: 600; }
+.hp-fecha { font-size: 0.7rem; color: #9AA0AC; }
+.hp-flecha { color: #6E7480; }
+
+/* ---------- Main content ---------- */
+.main-content { flex: 1; padding: 1.6rem 2rem; overflow-x: auto; }
+
+.board-header {
+  display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 0.8rem;
+  border-bottom: 2px solid var(--ink); padding-bottom: 0.8rem; margin-bottom: 1.4rem;
+}
+.board-header h1 {
+  font-family: var(--f-display); font-size: 1.9rem; font-weight: 700; margin: 0; letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+.board-header-sub { margin: 0.15rem 0 0; font-size: 0.85rem; color: var(--ink-soft); }
+.board-header-acciones { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.clock { font-size: 0.8rem; color: var(--ink-soft); }
+.header-chip {
+  background: var(--paper-soft); border: 1px solid var(--line); border-radius: 4px;
+  padding: 0.4rem 0.7rem; font-size: 0.8rem; color: var(--ink);
+}
+.btn-export {
+  display: inline-flex; align-items: center; gap: 0.35rem; border: none; border-radius: 4px;
+  padding: 0.5rem 0.85rem; font-weight: 600; font-size: 0.85rem; cursor: pointer; color: #fff;
+  transition: filter 0.15s ease, transform 0.1s ease;
+}
+.btn-export:hover { filter: brightness(1.08); }
+.btn-export:active { transform: translateY(1px); }
+.btn-export-excel { background: var(--ok); }
+.btn-export-pdf { background: var(--bad); }
+.fecha-pdf-input {
+  border: 1px solid var(--line); border-radius: 4px; padding: 0.45rem 0.5rem; font-family: var(--f-ui);
+  background: var(--paper-soft); font-size: 0.82rem;
+}
+
+.empty-state {
+  background: var(--paper-soft); border: 1px dashed var(--line); border-radius: 6px;
+  padding: 3.5rem 2rem; text-align: center; color: var(--ink-soft);
+}
+.empty-mark { font-size: 2rem; color: var(--amber); margin-bottom: 0.5rem; font-family: var(--f-display); }
+.empty-state #verHistorialBtn { margin-top: 1rem; }
+
+.periodo-analizado {
+  font-family: var(--f-mono); font-size: 0.78rem; color: var(--ink-soft);
+  margin: 0 0 1.1rem;
+}
+
+/* ---------- Multiselect propio ---------- */
+.multiselect { position: relative; margin-top: 0.25rem; }
+.multiselect-btn {
+  width: 100%; text-align: left; padding: 0.5rem 0.6rem; border: 1px solid var(--line);
+  border-radius: 4px; background: var(--paper-soft); font-family: var(--f-ui); font-size: 0.85rem;
+  cursor: pointer; color: var(--ink-soft); transition: border-color 0.15s ease;
+}
+.multiselect-btn:hover { border-color: var(--amber-deep); }
+.multiselect-btn.has-selection { color: var(--ink); font-weight: 600; border-color: var(--amber-deep); }
+.multiselect-btn::after { content: "▾"; float: right; color: var(--ink-soft); }
+.multiselect-panel {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
+  background: white; border: 1px solid var(--line); border-radius: 4px;
+  max-height: 220px; overflow-y: auto; box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+}
+.ms-option {
+  display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.6rem; font-size: 0.85rem;
+  cursor: pointer;
+}
+.ms-option:hover { background: var(--paper); }
+.ms-empty { padding: 0.6rem; font-size: 0.8rem; }
+
+/* ---------- KPIs ---------- */
+.kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.9rem; margin-bottom: 1.2rem; }
+.kpi-stub {
+  background: var(--paper-soft); border-left: 4px solid var(--amber); padding: 0.9rem 1rem;
+  border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  border-radius: 0 6px 6px 0; box-shadow: 0 1px 2px rgba(23,25,28,0.04);
+  transition: box-shadow 0.15s ease, transform 0.1s ease;
+}
+.kpi-stub:hover { box-shadow: 0 4px 12px rgba(23,25,28,0.08); transform: translateY(-1px); }
+.kpi-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
+.kpi-stub .kpi-label { font-family: var(--f-display); text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.75rem; color: var(--ink-soft); font-weight: 600; }
+.kpi-icono {
+  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+  border-radius: 50%; flex-shrink: 0;
+}
+.kpi-icono-neutro { background: #EEECE5; color: var(--ink-soft); }
+.kpi-icono-verde { background: var(--ok-soft); color: var(--ok); }
+.kpi-icono-rojo { background: var(--bad-soft); color: var(--bad); }
+.kpi-icono-ambar { background: var(--warn-soft); color: var(--warn); }
+.kpi-stub .kpi-value {
+  font-family: var(--f-mono); font-size: 1.7rem; font-weight: 600; color: var(--ink); margin-top: 0.3rem;
+  line-height: 1.15; word-break: break-word;
+}
+.kpi-unidad { font-size: 0.85rem; font-weight: 500; color: var(--ink-soft); font-family: var(--f-ui); }
+.kpi-stub .kpi-value.valor-largo { font-size: 1.15rem; }
+.kpi-stub .kpi-desc { font-size: 0.74rem; color: var(--ink-soft); margin-top: 0.3rem; line-height: 1.3; }
+
+.info-icon {
+  display: inline-block; font-size: 0.75rem; color: var(--ink-soft); cursor: help;
+  border: 1px solid var(--line); border-radius: 50%; width: 14px; height: 14px; line-height: 12px;
+  text-align: center; font-style: normal;
+}
+
+/* ---------- Atención requerida ---------- */
+.atencion-requerida { margin-bottom: 1.2rem; border-radius: 6px; padding: 0.8rem 1rem; }
+.atencion-requerida.atencion-alerta { background: var(--bad-soft); border: 1px solid #e3bcb7; }
+.atencion-requerida.atencion-ok {
+  background: var(--ok-soft); border: 1px solid #b9dcbc; color: #1f5e3c; font-weight: 600;
+  font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem;
+}
+.atencion-check { color: var(--ok); }
+.atencion-titulo {
+  font-family: var(--f-display); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700;
+  font-size: 0.9rem; color: var(--bad); margin-bottom: 0.55rem;
+}
+.atencion-total { color: #7a2f28; font-weight: 500; text-transform: none; letter-spacing: normal; }
+.atencion-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.atencion-chip {
+  background: var(--paper-soft); border: 1px solid #e3bcb7; border-radius: 999px; padding: 0.3rem 0.75rem;
+  font-size: 0.78rem; color: #7a2f28; cursor: pointer; transition: background 0.15s ease;
+}
+.atencion-chip:hover { background: #fceeed; }
+.atencion-chip.activo { background: var(--bad); color: #fff; border-color: var(--bad); }
+.atencion-chip strong { font-family: var(--f-mono); }
+.atencion-quitar { background: var(--paper-soft); color: var(--ink-soft); border-color: var(--line); }
+
+/* ---------- Gráficos ---------- */
+.charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.2rem; }
+.chart-panel {
+  background: var(--paper-soft); border: 1px solid var(--line); border-radius: 6px; padding: 1rem;
+  height: 300px; display: flex; flex-direction: column; position: relative;
+  box-shadow: 0 1px 2px rgba(23,25,28,0.04);
+  /* Los gráficos de ranking (cantidad y minutos de tardanza) sobreescriben esta
+     altura con un valor inline en px (ver app.js) según su cantidad de barras;
+     el resto de los gráficos usa esta altura fija. Sin un techo aquí, un
+     <canvas> con flex:1 dentro de un contenedor flex sin altura acotada crece
+     sin límite (bug real detectado y corregido: el gráfico de Evolución diaria
+     se estiraba cientos de píxeles hacia abajo). */
+}
+.chart-panel-wide { grid-column: 1 / -1; height: 340px; }
+.chart-panel h3 { margin: 0; }
+.chart-subtitle { margin: 0.15rem 0 0.6rem; font-size: 0.78rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--line); }
+.chart-panel canvas { flex: 1; min-height: 0; }
+.chart-caption { margin: 0.5rem 0 0; font-size: 0.74rem; color: var(--ink-soft); text-align: center; }
+.chart-empty { margin: auto; text-align: center; }
+
+.detalle-tardanzas { background: var(--paper-soft); border: 1px solid var(--line); border-radius: 6px; padding: 0 1.2rem; margin-bottom: 1.2rem; }
+.detalle-tardanzas summary { cursor: pointer; padding: 0.9rem 0; list-style: none; }
+.detalle-tardanzas summary::-webkit-details-marker { display: none; }
+.detalle-tardanzas[open] summary { border-bottom: 1px solid var(--line); }
+.chart-panel-detalle { height: 280px; border: none; padding: 1rem 0; box-shadow: none; }
+
+/* ---------- Tabla / auditoría ---------- */
+.ledger-section {
+  background: var(--paper-soft); border: 1px solid var(--line); border-radius: 6px; padding: 1.2rem 1.3rem;
+  margin-bottom: 1.2rem;
+}
+.ledger-section h2 { margin: 0 0 0.9rem; padding-bottom: 0.6rem; border-bottom: 2px solid var(--ink); }
+
+.toolbar-auditoria {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; margin-bottom: 1rem;
+}
+.toolbar-auditoria .filter-item-buscar { grid-column: span 2; }
+.filter-item select, .filter-item input {
+  width: 100%; padding: 0.5rem; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--paper-soft); font-family: var(--f-ui); margin-top: 0.25rem;
+}
+.filter-actions { display: flex; flex-direction: column; justify-content: flex-end; }
+.btn-small { padding: 0.5rem 0.7rem; font-size: 0.8rem; margin-top: 0.25rem; }
+
+.table-wrap { overflow-x: auto; max-height: 480px; overflow-y: auto; border-radius: 4px; }
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th {
+  font-family: var(--f-display); text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.75rem;
+  color: var(--ink-soft); text-align: left; padding: 0.5rem 0.7rem; border-bottom: 2px solid var(--ink);
+  position: sticky; top: 0; background: var(--paper-soft); white-space: nowrap; z-index: 1;
+}
+td { padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.td-nombre { font-weight: 600; min-width: 150px; }
+.th-sticky { position: sticky; left: 0; z-index: 2; background: var(--paper-soft); box-shadow: 2px 0 4px rgba(0,0,0,0.05); }
+th.th-sticky { z-index: 3; }
+.num { text-align: right; }
+tr.fila-exceso td { background: #fff7e6; }
+tr.fila-inconsistente td:first-child { border-left: 3px solid var(--bad); }
+.exceso { color: var(--bad); font-weight: 600; }
+
+.tag {
+  display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.76rem; font-weight: 600;
+  padding: 0.15rem 0.5rem; border-radius: 999px; font-family: var(--f-ui);
+}
+.tag-verde { background: var(--ok-soft); color: #1f5e3c; }
+.tag-ambar { background: var(--warn-soft); color: #7a5a10; }
+.tag-rojo { background: var(--bad-soft); color: #7a2f28; }
+.tag-gris { background: #EDEDEA; color: var(--gris-tag); }
+
+/* Firma visual: ruta con abreviaturas y flechas, ej. SUP → MAX → FAR */
+.ruta-strip { display: inline-flex; align-items: center; gap: 0.15rem; flex-wrap: nowrap; }
+.ruta-parada { display: inline-flex; align-items: center; gap: 0.25rem; }
+.ruta-punto {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--ink); flex-shrink: 0;
+  border: 1.5px solid var(--amber);
+}
+.ruta-abrev { font-family: var(--f-mono); font-size: 0.72rem; font-weight: 600; color: var(--ink); }
+.ruta-flecha { color: var(--ink-soft); font-size: 0.75rem; margin: 0 0.15rem; }
+.ruta-count { font-family: var(--f-mono); font-size: 0.72rem; color: var(--ink-soft); margin-left: 0.4rem; }
+
+/* ---------- Paginación ---------- */
+.paginacion-bar {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem;
+  margin-top: 0.8rem; font-size: 0.8rem; color: var(--ink-soft);
+}
+.paginacion-controles { display: flex; align-items: center; gap: 0.5rem; }
+.paginacion-controles select { padding: 0.3rem 0.4rem; border: 1px solid var(--line); border-radius: 4px; }
+.paginacion-botones { display: flex; align-items: center; gap: 0.25rem; }
+.pg-btn {
+  min-width: 28px; height: 28px; border: 1px solid var(--line); background: var(--paper-soft);
+  border-radius: 4px; cursor: pointer; font-family: var(--f-mono); font-size: 0.78rem;
+  transition: background 0.15s ease;
+}
+.pg-btn:hover:not(:disabled) { background: var(--paper); }
+.pg-btn.activo { background: var(--ink); color: #fff; border-color: var(--ink); }
+.pg-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pg-elipsis { padding: 0 0.2rem; color: var(--ink-soft); }
+
+.export-section p { margin: 0; }
+
+@media (max-width: 960px) {
+  .sidebar-toggle { display: block; }
+  .app-layout { flex-direction: column; }
+  .sidebar {
+    position: fixed; top: 0; left: 0; height: 100vh; z-index: 40; transform: translateX(-100%);
+    transition: transform 0.2s ease; overflow-y: auto; width: 280px;
+  }
+  .sidebar.abierto { transform: translateX(0); box-shadow: 4px 0 18px rgba(0,0,0,0.3); }
+  .main-content { padding-top: 3.6rem; }
+  .toolbar-auditoria, .kpi-row, .charts-grid, .export-grid { grid-template-columns: 1fr; }
+  .toolbar-auditoria .filter-item-buscar { grid-column: span 1; }
+  .board-header { flex-direction: column; align-items: flex-start; }
+}
+
+@media (min-width: 961px) and (max-width: 1280px) {
+  .kpi-row { grid-template-columns: repeat(3, 1fr); }
+  .charts-grid { grid-template-columns: 1fr 1fr; }
+  .toolbar-auditoria { grid-template-columns: repeat(2, 1fr); }
+}
+
+</style>
+</head>
+<body>
+
+<button id="sidebarToggleBtn" class="sidebar-toggle" aria-label="Abrir u ocultar el menú lateral" aria-expanded="false">☰</button>
+
+<div class="app-layout">
+
+  <!-- RIEL LATERAL — "manifiesto" -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 3 6v6c0 5 4 8.5 9 10 5-1.5 9-5 9-10V6z"/></svg>
+      </span>
+      <div class="brand-text">
+        <div class="brand-name">GU TRADE</div>
+        <div class="brand-sub">Asistencia &amp; Rutas</div>
+      </div>
+    </div>
+
+    <details class="rail-panel" open>
+      <summary><span class="rail-icon" aria-hidden="true">⭱</span>01 — Cargar datos</summary>
+      <div class="rail-body">
+        <input type="file" id="fileInput" accept=".xlsx" aria-label="Seleccionar archivo Excel" />
+        <label class="eyebrow">Período (opcional)</label>
+        <input type="text" id="periodoManual" placeholder="AAAA-MM" />
+        <button id="procesarBtn" class="btn-flag" disabled>Procesar Excel</button>
+        <div class="upload-status-row">
+          <span id="uploadSpinner" class="spinner hidden" aria-hidden="true"></span>
+          <div id="uploadStatus" class="status-msg" role="status"></div>
+        </div>
+        <div id="uploadResumen" class="upload-resumen hidden"></div>
+      </div>
+    </details>
+
+    <details class="rail-panel">
+      <summary><span class="rail-icon" aria-hidden="true">⚑</span>01b — Rutas asignadas</summary>
+      <div class="rail-body">
+        <p class="small muted">Catálogo opcional (no cambia mes a mes): qué PDV le corresponde a cada colaborador y en qué días de la semana. Los colaboradores sin ruta asignada siguen mostrando lo que efectivamente visitaron, sin evaluar cumplimiento.</p>
+
+        <label class="eyebrow" title="Enlace de exportación CSV de la hoja de rutas publicada en Google Sheets (Archivo → Compartir → Publicar en la web → elegir la hoja → formato CSV → copiar enlace).">Enlace de Google Sheets (CSV)</label>
+        <input type="url" id="rutasSheetUrl" placeholder="https://docs.google.com/spreadsheets/.../pub?output=csv" />
+        <label class="small" style="display:flex; align-items:center; gap:0.4rem; color:#D8D6CC;">
+          <input type="checkbox" id="rutasAutoSync" style="width:auto;" />
+          Sincronizar automáticamente al procesar cada Excel
+        </label>
+        <button id="sincronizarRutasBtn" class="btn-flag">Sincronizar ahora</button>
+        <div id="rutasSyncStatus" class="status-msg" role="status"></div>
+        <div id="rutasSyncInfo" class="small muted"></div>
+
+        <div class="rail-divider">o subí un archivo manualmente</div>
+        <input type="file" id="fileInputRutas" accept=".xlsx" aria-label="Seleccionar archivo de rutas asignadas" />
+        <button id="procesarRutasBtn" class="btn-ghost" disabled>Cargar archivo de rutas</button>
+        <div id="rutasStatus" class="status-msg" role="status"></div>
+        <div id="rutasResumen" class="upload-resumen hidden"></div>
+      </div>
+    </details>
+
+    <details class="rail-panel">
+      <summary><span class="rail-icon" aria-hidden="true">⚙</span>02 — Reglas de negocio</summary>
+      <div class="rail-body">
+        <label class="eyebrow" title="Hora oficial de inicio de jornada, usada como referencia para calcular minutos y estado de puntualidad.">Hora entrada oficial</label>
+        <input type="text" id="cfgHoraEntrada" placeholder="08:00" />
+        <label class="eyebrow" title="Horas de jornada obligatorias por día. Se comparan contra las horas efectivas trabajadas (entrada a salida, descontando el descanso) para saber si el colaborador cumplió su jornada.">Horas de jornada obligatorias</label>
+        <input type="number" id="cfgHorasJornada" min="1" step="0.5" placeholder="8" />
+        <label class="eyebrow" title="Minutos de gracia tras la hora oficial. Una entrada dentro de este margen se considera Puntual.">Tolerancia (min)</label>
+        <input type="number" id="cfgTolerancia" min="0" />
+        <label class="eyebrow" title="Minuto límite (desde la hora oficial) hasta el cual una llegada tardía se clasifica como Tardanza Leve. Desde el minuto siguiente pasa a Tardanza a Supervisar.">Tardanza leve hasta (min)</label>
+        <input type="number" id="cfgTardanzaLeve" min="1" />
+        <label class="eyebrow" title="Minutos de descanso permitidos por día antes de marcar exceso.">Descanso permitido (min)</label>
+        <input type="number" id="cfgDescanso" min="0" />
+        <button id="guardarCfgBtn" class="btn-ghost">Guardar y recalcular</button>
+        <div id="cfgStatus" class="status-msg" role="status"></div>
+      </div>
+    </details>
+
+    <details class="rail-panel" open>
+      <summary><span class="rail-icon" aria-hidden="true">▤</span>03 — Período</summary>
+      <div class="rail-body">
+        <div class="radio-group" id="modoVistaGroup">
+          <label><input type="radio" name="modoVista" value="actual" checked /> Mes actual</label>
+          <label><input type="radio" name="modoVista" value="especifico" /> Mes específico</label>
+          <label><input type="radio" name="modoVista" value="comparativa" /> Comparativa</label>
+        </div>
+        <select id="periodoSelect" class="hidden"></select>
+        <div id="periodoMultiWrap" class="hidden">
+          <select id="periodoMulti" multiple size="5"></select>
+          <span class="eyebrow muted">Ctrl/Cmd + clic para varios</span>
+        </div>
+      </div>
+    </details>
+
+    <details class="rail-panel">
+      <summary><span class="rail-icon" aria-hidden="true">▽</span>04 — Filtros</summary>
+      <div class="rail-body">
+        <p class="small muted">Los filtros (colaborador, estado, PDV, fechas, búsqueda) están arriba de la bitácora, para que se apliquen a toda la vista desde un solo lugar.</p>
+        <a href="#auditoriaToolbar" class="btn-ghost btn-small btn-link-anchor">Ir a los filtros ↓</a>
+      </div>
+    </details>
+
+    <div class="rail-panel rail-historial">
+      <div class="rail-historial-header">
+        <span class="eyebrow">Historial de procesos</span>
+        <button id="actualizarHistorialBtn" class="btn-icon-text" title="Actualizar lista">↻</button>
+      </div>
+      <div id="historialProcesos" class="rail-body"></div>
+    </div>
+
+    <button id="borrarDatosBtn" class="btn-text">Borrar todos los datos locales</button>
+    <p class="rail-footnote">Los datos se guardan solo en este navegador (IndexedDB). No se comparten entre equipos.</p>
+  </aside>
+
+  <!-- CONTENIDO PRINCIPAL -->
+  <main class="main-content">
+    <header class="board-header">
+      <div class="board-header-titulo">
+        <h1>Control de Asistencia y Rutas PDV</h1>
+        <p class="board-header-sub">GU TRADE · Resumen operativo</p>
+      </div>
+      <div class="board-header-acciones">
+        <div id="relojHeader" class="clock mono"></div>
+        <div id="headerResumenChip" class="header-chip mono">Sin datos cargados</div>
+        <button id="exportExcelBtn" class="btn-export btn-export-excel" title="Descargar Excel consolidado">
+          <span aria-hidden="true">⬇</span> Excel
+        </button>
+        <input type="date" id="fechaPdf" class="fecha-pdf-input" title="Fecha de la ficha PDF" aria-label="Fecha de la ficha PDF" />
+        <button id="exportPdfBtn" class="btn-export btn-export-pdf" title="Descargar ficha PDF del día seleccionado">
+          <span aria-hidden="true">⬇</span> PDF
+        </button>
+      </div>
+    </header>
+
+    <div id="emptyState" class="empty-state">
+      <div class="empty-mark">＋</div>
+      <p id="emptyStateTexto">Carga tu primer Excel mensual desde <strong>01 — Cargar datos</strong> para empezar.</p>
+      <button id="verHistorialBtn" class="btn-flag hidden">Ver historial guardado</button>
+    </div>
+
+    <div id="dashboardContent" class="hidden">
+
+      <div id="periodoAnalizadoLabel" class="periodo-analizado"></div>
+
+      <div id="sinResultados" class="empty-state hidden">
+        <p>No se encontraron registros para los filtros seleccionados.</p>
+      </div>
+
+      <div id="contenidoFiltrado">
+        <section class="kpi-row" id="kpiRow"></section>
+
+        <section id="atencionRequerida" class="atencion-requerida" aria-live="polite"></section>
+
+        <section class="charts-grid">
+          <div class="chart-panel">
+            <h3 class="eyebrow">Colaboradores con más tardanzas</h3>
+            <p class="chart-subtitle muted">Cantidad de llegadas registradas desde las 08:11</p>
+            <canvas id="chartRanking"></canvas>
+          </div>
+          <div class="chart-panel">
+            <h3 class="eyebrow">Evolución diaria de asistencia</h3>
+            <p class="chart-subtitle muted">Cantidad de colaboradores por estado y fecha</p>
+            <canvas id="chartEvolucion"></canvas>
+          </div>
+          <div class="chart-panel">
+            <h3 class="eyebrow">Distribución del tiempo de trabajo</h3>
+            <p class="chart-subtitle muted">Minutos registrados por categoría</p>
+            <canvas id="chartDistribucion"></canvas>
+            <p id="distribucionTotal" class="chart-caption mono"></p>
+          </div>
+          <div class="chart-panel">
+            <h3 class="eyebrow">Tendencia mensual histórica</h3>
+            <p class="chart-subtitle muted">% Puntualidad (línea) y cantidad de tardanzas (barras) por mes</p>
+            <canvas id="chartTendencia"></canvas>
+            <p class="chart-empty muted">Carga al menos 2 meses para ver la tendencia.</p>
+          </div>
+        </section>
+
+        <details class="ledger-section detalle-tardanzas">
+          <summary class="eyebrow">Análisis detallado de tardanzas ▾</summary>
+          <div class="chart-panel chart-panel-detalle">
+            <h3 class="eyebrow">Minutos de tardanza por colaborador</h3>
+            <p class="chart-subtitle muted">Minutos acumulados (no es cantidad de eventos)</p>
+            <canvas id="chartMinutosTardanza"></canvas>
+          </div>
+        </details>
+
+        <section class="ledger-section" id="auditoriaToolbar">
+          <h2 class="eyebrow">Auditoría diaria</h2>
+
+          <div class="toolbar-auditoria">
+            <div class="filter-item">
+              <label class="eyebrow">Desde</label>
+              <input type="date" id="filtroFechaDesde" />
+            </div>
+            <div class="filter-item">
+              <label class="eyebrow">Hasta</label>
+              <input type="date" id="filtroFechaHasta" />
+            </div>
+            <div class="filter-item">
+              <label class="eyebrow">Estado</label>
+              <div class="multiselect" id="msEstado">
+                <button type="button" class="multiselect-btn">Todos los estados</button>
+                <div class="multiselect-panel hidden"></div>
+              </div>
+            </div>
+            <div class="filter-item">
+              <label class="eyebrow">Colaborador</label>
+              <div class="multiselect" id="msEmpleado">
+                <button type="button" class="multiselect-btn">Todos los colaboradores</button>
+                <div class="multiselect-panel hidden"></div>
+              </div>
+            </div>
+            <div class="filter-item">
+              <label class="eyebrow">PDV</label>
+              <div class="multiselect" id="msPdv">
+                <button type="button" class="multiselect-btn">Todos los PDV</button>
+                <div class="multiselect-panel hidden"></div>
+              </div>
+            </div>
+            <div class="filter-item filter-item-buscar">
+              <label class="eyebrow">Buscar colaborador</label>
+              <input type="search" id="buscarColaboradorInput" placeholder="Nombre..." />
+            </div>
+            <div class="filter-item filter-actions">
+              <label class="eyebrow">&nbsp;</label>
+              <button id="limpiarFiltrosBtn" class="btn-ghost btn-small">Limpiar filtros</button>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table id="tablaAuditoria">
+              <thead>
+                <tr>
+                  <th class="th-sticky">Colaborador</th>
+                  <th>Fecha</th>
+                  <th>Entrada</th>
+                  <th>Salida</th>
+                  <th>Estado</th>
+                  <th title="Diferencia entre la hora de entrada registrada y las 08:00. Las entradas hasta las 08:10 se consideran puntuales por la tolerancia establecida.">Min. desde las 08:00 <span class="info-icon">ⓘ</span></th>
+                  <th title="Minutos de descanso registrados en el día. Se indica el exceso entre paréntesis cuando supera el límite permitido.">Descanso (min) <span class="info-icon">ⓘ</span></th>
+                  <th>PDV</th>
+                  <th>Ruta del día</th>
+                  <th title="Minutos entre la primera entrada y la última salida del día, descontando el descanso. Se compara contra la jornada obligatoria configurada.">Horas efectivas <span class="info-icon">ⓘ</span></th>
+                  <th title="Indica si el colaborador cumplió la jornada obligatoria configurada (horas efectivas trabajadas, sin contar el descanso).">Jornada <span class="info-icon">ⓘ</span></th>
+                  <th title="Solo aplica a colaboradores con ruta asignada para ese día de la semana: compara los PDV que debía visitar contra los que efectivamente visitó. '—' significa que no tiene ruta asignada ese día (no se evalúa).">Cobertura de ruta <span class="info-icon">ⓘ</span></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <div class="paginacion-bar">
+            <div class="paginacion-info" id="paginacionInfo"></div>
+            <div class="paginacion-controles">
+              <label class="eyebrow">Filas por página</label>
+              <select id="filasPorPaginaSelect">
+                <option value="10">10</option>
+                <option value="15" selected>15</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+              </select>
+              <div id="paginacionBotones" class="paginacion-botones"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ledger-section export-section">
+          <h2 class="eyebrow">Exportación de reportes</h2>
+          <p class="muted small">Excel: Resumen ejecutivo · Detalle diario · Inconsistencias · Marcaciones · Período y filtros aplicados. PDF: ficha ejecutiva del día elegido junto al botón "PDF" del encabezado.</p>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+// ============================================================================
+// db.js — Persistencia 100% local con IndexedDB (sin backend, sin Supabase).
+//
+// IMPORTANTE: los datos se guardan SOLO en el navegador donde se usa la app
+// (IndexedDB del dispositivo). No se comparten entre computadoras ni
+// usuarios. Si varias personas usan el dashboard, cada una ve solo lo que
+// ella misma subió en su propio navegador. Para compartir el histórico entre
+// varias personas se necesitaría una base de datos remota (fuera del alcance
+// de esta versión, que es intencionalmente 100% offline/local).
+// ============================================================================
+
+const DB_NAME = "asistencia_pdv_db";
+const DB_VERSION = 2;
+let dbPromise = null;
+
+function abrirDB() {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+
+    req.onupgradeneeded = (evento) => {
+      const db = evento.target.result;
+
+      if (!db.objectStoreNames.contains("empleados")) {
+        db.createObjectStore("empleados", { keyPath: "id_empleado" });
+      }
+      if (!db.objectStoreNames.contains("marcaciones_detalle")) {
+        const os = db.createObjectStore("marcaciones_detalle", { keyPath: "id", autoIncrement: true });
+        os.createIndex("periodo", "periodo", { unique: false });
+        os.createIndex("id_empleado", "id_empleado", { unique: false });
+      }
+      if (!db.objectStoreNames.contains("asistencia_resumen_diario")) {
+        const os = db.createObjectStore("asistencia_resumen_diario", { keyPath: "id", autoIncrement: true });
+        os.createIndex("periodo", "periodo", { unique: false });
+        os.createIndex("id_empleado", "id_empleado", { unique: false });
+      }
+      if (!db.objectStoreNames.contains("periodos_cargados")) {
+        db.createObjectStore("periodos_cargados", { keyPath: "periodo" });
+      }
+      if (!db.objectStoreNames.contains("configuracion")) {
+        db.createObjectStore("configuracion", { keyPath: "clave" });
+      }
+      if (!db.objectStoreNames.contains("rutas_asignadas")) {
+        const os = db.createObjectStore("rutas_asignadas", { keyPath: "id", autoIncrement: true });
+        os.createIndex("nombre_normalizado", "nombre_normalizado", { unique: false });
+      }
+    };
+
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
+}
+
+function conTransaccion(storeNames, modo, callback) {
+  return abrirDB().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(storeNames, modo);
+        const resultado = callback(tx);
+        tx.oncomplete = () => resolve(resultado);
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      })
+  );
+}
+
+function dbGetAll(storeName) {
+  return abrirDB().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, "readonly");
+        const req = tx.objectStore(storeName).getAll();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      })
+  );
+}
+
+function dbGetByIndex(storeName, indexName, valorOValores) {
+  const valores = Array.isArray(valorOValores) ? valorOValores : [valorOValores];
+  return abrirDB().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, "readonly");
+        const idx = tx.objectStore(storeName).index(indexName);
+        const resultados = [];
+        let pendientes = valores.length;
+        if (!pendientes) return resolve([]);
+        valores.forEach((valor) => {
+          const req = idx.getAll(valor);
+          req.onsuccess = () => {
+            resultados.push(...req.result);
+            pendientes -= 1;
+            if (pendientes === 0) resolve(resultados);
+          };
+          req.onerror = () => reject(req.error);
+        });
+      })
+  );
+}
+
+function dbPutMany(storeName, registros) {
+  return conTransaccion(storeName, "readwrite", (tx) => {
+    const store = tx.objectStore(storeName);
+    registros.forEach((r) => store.put(r));
+  });
+}
+
+function dbPut(storeName, registro) {
+  return dbPutMany(storeName, [registro]);
+}
+
+function dbDeleteByIndex(storeName, indexName, valor) {
+  return conTransaccion(storeName, "readwrite", (tx) => {
+    const store = tx.objectStore(storeName);
+    const idx = store.index(indexName);
+    const req = idx.openCursor(IDBKeyRange.only(valor));
+    req.onsuccess = (evento) => {
+      const cursor = evento.target.result;
+      if (cursor) {
+        cursor.delete();
+        cursor.continue();
+      }
+    };
+  });
+}
+
+function dbClearStore(storeName) {
+  return conTransaccion(storeName, "readwrite", (tx) => {
+    tx.objectStore(storeName).clear();
+  });
+}
+
+function dbClearAll() {
+  const stores = ["empleados", "marcaciones_detalle", "asistencia_resumen_diario", "periodos_cargados", "configuracion", "rutas_asignadas"];
+  return conTransaccion(stores, "readwrite", (tx) => {
+    stores.forEach((s) => tx.objectStore(s).clear());
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Configuración por defecto (se siembra la primera vez que se abre la app)
+// ---------------------------------------------------------------------------
+const CONFIG_DEFAULT = [
+  { clave: "hora_entrada_teorica", valor: "08:00" },
+  { clave: "horas_jornada_esperada", valor: "8" },
+  { clave: "tolerancia_min", valor: "10" },
+  { clave: "tardanza_leve_max_min", valor: "29" },
+  { clave: "descanso_permitido_min", valor: "60" },
+];
+
+async function asegurarConfiguracionInicial() {
+  const existentes = await dbGetAll("configuracion");
+  if (!existentes.length) {
+    await dbPutMany("configuracion", CONFIG_DEFAULT);
+  }
+}
+
+
+// ============================================================================
+// etl.js — Lectura y limpieza del Excel "en bruto" de marcaciones
+// Misma lógica que la versión Python (core/etl.py), reescrita en JS puro
+// para correr 100% en el navegador (usa SheetJS ya cargado como `XLSX`).
+// ============================================================================
+
+const COLUMN_ALIASES = {
+  id_empleado: [
+    "identificador de persona de interes",
+    "id de persona de interes",
+    "id persona de interes",
+    "id empleado",
+    "cedula",
+    "documento",
+  ],
+  nombre: ["nombre de persona de interes", "nombre persona de interes", "nombre", "colaborador"],
+  // "punto_venta" cubre el formato antiguo/alternativo donde el nombre del
+  // PDV viene en su propia columna de texto plano.
+  punto_venta: ["punto de venta", "pdv", "sucursal", "ubicacion"],
+  // "id_punto_venta" cubre el formato REAL del sistema de marcaciones: la
+  // columna "Identificador de Punto de Interés" trae el código del PDV
+  // (ej. "PDV0347"), vacío en filas de Descanso/Traslado.
+  id_punto_venta: ["identificador de punto de interes", "id de punto de venta", "id pdv", "codigo pdv"],
+  actividad: ["actividad", "tipo de actividad", "tarea"],
+  fecha: ["fecha", "dia"],
+  hora_inicio: ["hora inicio", "hora de inicio", "hora entrada"],
+  hora_salida: ["hora salida", "hora de salida", "hora fin"],
+  tiempo_transcurrido: ["tiempo transcurrido", "duracion", "tiempo"],
+};
+
+function normalizarTexto(txt) {
+  if (typeof txt !== "string") return "";
+  let t = txt.trim().toLowerCase();
+  const reemplazos = { á: "a", é: "e", í: "i", ó: "o", ú: "u", ñ: "n" };
+  for (const [a, b] of Object.entries(reemplazos)) t = t.split(a).join(b);
+  return t.replace(/\s+/g, " ");
+}
+
+function mapearColumnas(columnas) {
+  const normalizados = columnas.map((c) => [c, normalizarTexto(c)]);
+  const mapeo = {};
+  for (const [estandar, aliasList] of Object.entries(COLUMN_ALIASES)) {
+    let encontrado = null;
+    for (const [colOriginal, colNorm] of normalizados) {
+      if (aliasList.includes(colNorm) || aliasList.some((a) => colNorm.includes(a))) {
+        encontrado = colOriginal;
+        break;
+      }
+    }
+    if (encontrado) mapeo[estandar] = encontrado;
+  }
+  const faltantes = ["id_empleado", "nombre", "fecha", "hora_inicio"].filter((k) => !mapeo[k]);
+  if (faltantes.length) {
+    throw new Error(
+      `No se pudieron identificar columnas obligatorias en el Excel: ${faltantes.join(", ")}. ` +
+        `Columnas disponibles: ${columnas.join(", ")}`
+    );
+  }
+  return mapeo;
+}
+
+function limpiarString(valor) {
+  if (valor === null || valor === undefined || valor === "") return null;
+  return String(valor).trim();
+}
+
+// Parsea DD/MM/YY, DD/MM/YYYY, o fecha serial de Excel -> string "YYYY-MM-DD"
+function parsearFecha(valor) {
+  if (valor === null || valor === undefined || valor === "") return null;
+
+  // Fecha serial de Excel (número)
+  if (typeof valor === "number") {
+    const fecha = XLSX.SSF.parse_date_code(valor);
+    if (!fecha) return null;
+    return `${fecha.y.toString().padStart(4, "0")}-${String(fecha.m).padStart(2, "0")}-${String(fecha.d).padStart(2, "0")}`;
+  }
+
+  const str = String(valor).trim();
+  // DD/MM/YY o DD/MM/YYYY o DD-MM-YYYY
+  let m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (m) {
+    let [, d, mo, y] = m;
+    d = parseInt(d, 10);
+    mo = parseInt(mo, 10);
+    y = parseInt(y, 10);
+    if (y < 100) y += 2000; // asume siglo 21 para años de 2 dígitos
+    return `${y.toString().padStart(4, "0")}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  // YYYY-MM-DD ya viene bien
+  m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) {
+    const [, y, mo, d] = m;
+    return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  return null;
+}
+
+// Normaliza una hora (texto, Date, o fracción de día de Excel) a "HH:MM". Null si "-" o vacío.
+function horaATexto(valor) {
+  if (valor === null || valor === undefined || valor === "") return null;
+  if (typeof valor === "string") {
+    const v = valor.trim();
+    if (["-", "", "N/A", "nan"].includes(v)) return null;
+    return v;
+  }
+  if (typeof valor === "number") {
+    // fracción de día de Excel
+    const totalMin = Math.round(valor * 24 * 60);
+    const h = Math.floor(totalMin / 60) % 24;
+    const m = totalMin % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  }
+  if (valor instanceof Date) {
+    return `${String(valor.getHours()).padStart(2, "0")}:${String(valor.getMinutes()).padStart(2, "0")}`;
+  }
+  return String(valor).trim();
+}
+
+// Convierte "HH:MM" (o número fracción de día) a minutos enteros. Null si "-" (marcación abierta).
+function duracionAMinutos(valor) {
+  if (valor === null || valor === undefined || valor === "") return null;
+  if (typeof valor === "string") {
+    const v = valor.trim();
+    if (["-", "", "N/A", "nan"].includes(v)) return null;
+    const m = v.match(/^(\d{1,3}):(\d{2})(:\d{2})?$/);
+    if (m) return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    const num = parseFloat(v);
+    return isNaN(num) ? null : num;
+  }
+  if (typeof valor === "number") {
+    return Math.round(valor * 24 * 60);
+  }
+  return null;
+}
+
+/**
+ * Lee un ArrayBuffer de un archivo .xlsx y devuelve:
+ *   { filas, meta }
+ * - filas: array de objetos limpios { id_empleado, nombre, punto_venta,
+ *   actividad, fecha, hora_inicio, hora_salida, tiempo_transcurrido_min,
+ *   marcacion_abierta, periodo }
+ * - meta: estadísticas de calidad de datos para mostrar en el resumen de
+ *   carga { hojaUsada, filasTotalesHoja, filasValidas, filasDescartadas,
+ *   duplicadosDetectados, fechasInvalidas, horasInvalidas }
+ */
+function leerYLimpiarExcel(arrayBuffer, hojaPreferida = "actividad") {
+  const wb = XLSX.read(arrayBuffer, { type: "array", cellDates: false });
+  const hojaReal =
+    wb.SheetNames.find((s) => normalizarTexto(s) === hojaPreferida) || wb.SheetNames[0];
+  const ws = wb.Sheets[hojaReal];
+  const rawRows = XLSX.utils.sheet_to_json(ws, { defval: null, raw: true });
+
+  const meta = {
+    hojaUsada: hojaReal,
+    filasTotalesHoja: rawRows.length,
+    filasValidas: 0,
+    filasDescartadas: 0,
+    duplicadosDetectados: 0,
+    fechasInvalidas: 0,
+    horasInvalidas: 0,
+  };
+
+  if (!rawRows.length) return { filas: [], meta };
+
+  const columnas = Object.keys(rawRows[0]);
+  const mapeo = mapearColumnas(columnas);
+
+  // Columnas opcionales no detectadas: si el Excel real usa un encabezado
+  // distinto a los previstos en COLUMN_ALIASES, esa columna queda vacía en
+  // TODAS las filas sin lanzar ningún error (por diseño, para no romper la
+  // carga por una columna secundaria) — pero eso puede producir resultados
+  // silenciosamente incorrectos (ej. "PDV visitados por día: 0.0" si nunca
+  // se detectó ni "Punto de Venta" ni "Identificador de Punto de Interés").
+  // Se reporta para que el usuario lo note.
+  const tienePuntoVenta = !!(mapeo.punto_venta || mapeo.id_punto_venta);
+  const columnasOpcionalesEsperadas = {
+    actividad: "Actividad",
+    hora_salida: "Hora de salida",
+    tiempo_transcurrido: "Tiempo transcurrido",
+  };
+  meta.columnasOpcionalesNoDetectadas = Object.entries(columnasOpcionalesEsperadas)
+    .filter(([clave]) => !mapeo[clave])
+    .map(([, nombre]) => nombre);
+  if (!tienePuntoVenta) meta.columnasOpcionalesNoDetectadas.push("Punto de Venta / Identificador de Punto de Interés");
+
+  const filas = [];
+  const clavesVistas = new Set();
+
+  for (const row of rawRows) {
+    const id_empleado = limpiarString(row[mapeo.id_empleado]);
+    const fechaCruda = row[mapeo.fecha];
+    const fecha = parsearFecha(fechaCruda);
+
+    // Fila totalmente vacía (sin id ni fecha): se descarta en silencio, no
+    // cuenta como "inválida" porque probablemente es una fila en blanco del
+    // Excel, no un dato real con un problema.
+    if (!id_empleado && (fechaCruda === null || fechaCruda === undefined || fechaCruda === "")) {
+      meta.filasDescartadas += 1;
+      continue;
+    }
+
+    if (fechaCruda && !fecha) {
+      meta.fechasInvalidas += 1;
+      meta.filasDescartadas += 1;
+      continue;
+    }
+    if (!id_empleado || !fecha) {
+      meta.filasDescartadas += 1;
+      continue;
+    }
+
+    const nombre = limpiarString(row[mapeo.nombre]);
+
+    // --- Punto de venta / actividad ---
+    // Formato REAL del sistema: la columna "Identificador de Punto de
+    // Interés" trae el código del PDV (ej. "PDV0347"), y la columna
+    // "Actividad" trae "{identificador} - {nombre del PDV}" (ej.
+    // "PDV0347 - JOBS OFICINA"); para Descanso/Traslado, el identificador
+    // viene vacío y "Actividad" trae directamente "Descanso"/"Traslado".
+    // El identificador NO siempre empieza con "PDV" (a veces es el propio
+    // nombre del local), así que se le quita como prefijo literal en vez de
+    // buscar un patrón fijo.
+    const idPuntoVentaCrudo = mapeo.id_punto_venta ? limpiarString(row[mapeo.id_punto_venta]) : null;
+    const actividadCruda = mapeo.actividad ? limpiarString(row[mapeo.actividad]) : null;
+
+    let punto_venta = null;
+    let id_punto_venta = null;
+    let actividad;
+
+    if (idPuntoVentaCrudo) {
+      // Es una visita a PDV: el identificador viene informado.
+      id_punto_venta = idPuntoVentaCrudo;
+      actividad = "PDV";
+      const prefijo = `${idPuntoVentaCrudo} -`;
+      if (actividadCruda && actividadCruda.startsWith(prefijo)) {
+        punto_venta = actividadCruda.slice(prefijo.length).trim();
+      } else {
+        punto_venta = actividadCruda || idPuntoVentaCrudo;
+      }
+    } else if (mapeo.punto_venta) {
+      // Formato alternativo: nombre de PDV en su propia columna de texto.
+      punto_venta = limpiarString(row[mapeo.punto_venta]);
+      actividad = actividadCruda || "PDV";
+    } else {
+      // Sin identificador ni columna de punto de venta: Descanso/Traslado u
+      // otra actividad sin PDV asociado.
+      actividad = actividadCruda || "PDV";
+    }
+
+    const horaInicioCruda = row[mapeo.hora_inicio];
+    const hora_inicio = horaATexto(horaInicioCruda);
+    if (horaInicioCruda && !hora_inicio) meta.horasInvalidas += 1;
+
+    const hora_salida = mapeo.hora_salida ? horaATexto(row[mapeo.hora_salida]) : null;
+    const tiempo_transcurrido_min = mapeo.tiempo_transcurrido
+      ? duracionAMinutos(row[mapeo.tiempo_transcurrido])
+      : null;
+
+    // Detección de registros duplicados exactos (misma persona, fecha, hora
+    // de inicio y punto de venta). Se conservan igual —no se eliminan— pero
+    // se cuentan para advertir al usuario.
+    const claveDuplicado = `${id_empleado}|${fecha}|${hora_inicio}|${punto_venta}`;
+    if (clavesVistas.has(claveDuplicado)) meta.duplicadosDetectados += 1;
+    clavesVistas.add(claveDuplicado);
+
+    const [y, mo] = fecha.split("-");
+    filas.push({
+      id_empleado,
+      nombre,
+      punto_venta,
+      id_punto_venta,
+      actividad,
+      fecha,
+      hora_inicio,
+      hora_salida,
+      tiempo_transcurrido_min,
+      marcacion_abierta: hora_salida === null,
+      periodo: `${y}-${mo}`,
+    });
+  }
+  meta.filasValidas = filas.length;
+  return { filas, meta };
+}
+
+function detectarPeriodo(filas) {
+  if (!filas.length) return null;
+  const conteo = {};
+  for (const f of filas) conteo[f.periodo] = (conteo[f.periodo] || 0) + 1;
+  return Object.entries(conteo).sort((a, b) => b[1] - a[1])[0][0];
+}
+
+// ============================================================================
+// RUTAS ASIGNADAS — archivo aparte (catálogo, no cambia mes a mes) con las
+// visitas obligatorias por colaborador y día de la semana.
+//
+// Formato esperado (según la hoja real compartida por el usuario):
+//   Hoja 1: Cliente | Persona de Interés | Punto de venta | Visita | Identificador
+//     - "Visita" trae códigos de día separados por coma: LU, MA, MI, JU, VI, SA.
+//     - Si "Visita" viene vacía, esa fila NO genera ninguna obligación — se
+//       ignora por completo para efectos de cumplimiento (solo se mide lo que
+//       la persona efectivamente visitó, sin exigirle nada ahí).
+//   Hoja 2 (opcional): catálogo completo Nombre | Identificador — no se usa
+//     para el cálculo de cumplimiento (se compara por nombre de PDV contra el
+//     Excel de marcaciones), pero se lee por si en el futuro hace falta.
+// ============================================================================
+
+const DIAS_VALIDOS = new Set(["LU", "MA", "MI", "JU", "VI", "SA", "DO"]);
+
+const COLUMN_ALIASES_RUTAS = {
+  cliente: ["cliente"],
+  persona: ["persona de interes", "persona de interés", "nombre", "colaborador"],
+  punto_venta: ["punto de venta", "pdv", "punto venta"],
+  visita: ["visita", "dias", "días", "dia", "día"],
+  identificador: ["identificador", "id pdv", "codigo", "código"],
+};
+
+function mapearColumnasRutas(columnas) {
+  const normalizados = columnas.map((c) => [c, normalizarTexto(c)]);
+  const mapeo = {};
+  for (const [estandar, aliasList] of Object.entries(COLUMN_ALIASES_RUTAS)) {
+    let encontrado = null;
+    for (const [colOriginal, colNorm] of normalizados) {
+      if (aliasList.includes(colNorm) || aliasList.some((a) => colNorm.includes(a))) {
+        encontrado = colOriginal;
+        break;
+      }
+    }
+    if (encontrado) mapeo[estandar] = encontrado;
+  }
+  return mapeo;
+}
+
+// Normaliza un nombre de persona para poder cruzarlo entre dos archivos
+// distintos (mayúsculas/minúsculas y espacios pueden variar entre el Excel
+// de marcaciones y la hoja de rutas asignadas).
+function normalizarNombrePersona(nombre) {
+  return String(nombre || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function parsearDiasVisita(valor) {
+  if (valor === null || valor === undefined) return [];
+  const texto = String(valor).trim();
+  if (!texto) return [];
+  return texto
+    .split(/[,;\/]/)
+    .map((d) => d.trim().toUpperCase())
+    .filter((d) => DIAS_VALIDOS.has(d));
+}
+
+/**
+ * Lee el archivo de rutas asignadas y devuelve:
+ *   { asignaciones, meta }
+ * - asignaciones: array de { cliente, persona, nombre_normalizado,
+ *   punto_venta, dias: string[], identificador }. Las filas con "Visita"
+ *   vacía SÍ se incluyen (con dias: []) para que quede constancia de que la
+ *   persona tiene ese PDV listado, aunque no genere obligación por día.
+ * - meta: { hojaUsada, filasTotalesHoja, filasValidas, filasSinDia }
+ */
+// Núcleo de la lectura, independiente de si el origen fue un archivo .xlsx
+// o texto CSV descargado en vivo desde Google Sheets — ambos se convierten
+// primero en un WorkBook de SheetJS y de ahí en adelante es la misma lógica.
+function leerRutasAsignadasDesdeWorkbook(wb) {
+  const hojaReal = wb.SheetNames[0];
+  const ws = wb.Sheets[hojaReal];
+  const rawRows = XLSX.utils.sheet_to_json(ws, { defval: null, raw: true });
+
+  const meta = { hojaUsada: hojaReal, filasTotalesHoja: rawRows.length, filasValidas: 0, filasSinDia: 0 };
+  if (!rawRows.length) return { asignaciones: [], meta };
+
+  const columnas = Object.keys(rawRows[0]);
+  const mapeo = mapearColumnasRutas(columnas);
+  const faltantes = ["persona", "punto_venta"].filter((k) => !mapeo[k]);
+  if (faltantes.length) {
+    throw new Error(
+      `No se pudieron identificar columnas obligatorias en el archivo de rutas: ${faltantes.join(", ")}. ` +
+        `Columnas disponibles: ${columnas.join(", ")}`
+    );
+  }
+
+  const asignaciones = [];
+  for (const row of rawRows) {
+    const persona = row[mapeo.persona] ? String(row[mapeo.persona]).trim() : null;
+    const puntoVenta = row[mapeo.punto_venta] ? String(row[mapeo.punto_venta]).trim() : null;
+    if (!persona || !puntoVenta) continue;
+
+    const dias = mapeo.visita ? parsearDiasVisita(row[mapeo.visita]) : [];
+    if (!dias.length) meta.filasSinDia += 1;
+
+    const identificador = mapeo.identificador ? String(row[mapeo.identificador] || "").trim() : null;
+    asignaciones.push({
+      cliente: mapeo.cliente ? String(row[mapeo.cliente] || "").trim() : null,
+      persona,
+      nombre_normalizado: normalizarNombrePersona(persona),
+      punto_venta: puntoVenta,
+      // Clave de cruce contra lo efectivamente visitado: se prioriza el
+      // identificador (ej. "PDV0001", igual al que trae el Excel de
+      // marcaciones en "Identificador de Punto de Interés") por ser más
+      // confiable que el nombre; si no hay identificador, cae al nombre
+      // normalizado como respaldo.
+      clave_pdv: identificador ? identificador.toLowerCase() : normalizarNombrePersona(puntoVenta),
+      dias,
+      identificador,
+    });
+  }
+  meta.filasValidas = asignaciones.length;
+  return { asignaciones, meta };
+}
+
+function leerRutasAsignadas(arrayBuffer) {
+  const wb = XLSX.read(arrayBuffer, { type: "array", cellDates: false });
+  return leerRutasAsignadasDesdeWorkbook(wb);
+}
+
+// Para sincronización en vivo: el texto ya viene como CSV (respuesta de
+// fetch() a la URL de exportación pública de Google Sheets). SheetJS puede
+// parsear CSV directamente como si fuera un libro de un solo hoja.
+function leerRutasAsignadasDesdeCSV(textoCSV) {
+  const wb = XLSX.read(textoCSV, { type: "string" });
+  return leerRutasAsignadasDesdeWorkbook(wb);
+}
+
+// Exporta para uso en Node (pruebas) y en navegador (script clásico)
+if (typeof module !== "undefined") {
+  module.exports = {
+    leerYLimpiarExcel,
+    detectarPeriodo,
+    parsearFecha,
+    duracionAMinutos,
+    horaATexto,
+    normalizarTexto,
+    leerRutasAsignadas,
+    leerRutasAsignadasDesdeCSV,
+    normalizarNombrePersona,
+    parsearDiasVisita,
+  };
+}
+
+
+// ============================================================================
+// businessLogic.js — Cálculo de asistencia_resumen_diario a partir de las
+// filas limpias que produce etl.js.
+//
+// REGLA CENTRAL DE ASISTENCIA (única fuente de verdad para todo el sistema:
+// tarjetas, tabla, gráficos, filtros, Excel y PDF usan clasificarPuntualidad):
+//   - Hora oficial de entrada: 08:00 (configurable)
+//   - Tolerancia: 10 minutos (configurable)
+//   - Entrada hasta 08:10 inclusive (<=10 min desde las 08:00)  -> "Puntual"
+//   - Entrada de 08:11 a 08:29 inclusive (11-29 min)            -> "Tardanza Leve"
+//   - Entrada desde 08:30 en adelante (>=30 min)                -> "Tardanza a Supervisar"
+//   - Sin marcación de entrada válida                           -> "Sin Entrada"
+//
+// Los minutos mostrados ("MIN. DESDE LAS 08:00") NUNCA descuentan la
+// tolerancia: una entrada a las 08:26 siempre muestra "26 min", aunque su
+// estado sea "Tardanza Leve" gracias a la tolerancia de 10 minutos.
+// ============================================================================
+
+const ACTIVIDADES_DESCANSO = new Set(["descanso", "break", "almuerzo"]);
+const ACTIVIDADES_TRASLADO = new Set(["traslado", "transporte", "movilizacion", "movilización"]);
+
+// Nombres de estado centralizados: todo el código (app.js, reportsClient.js)
+// debe usar estas constantes en vez de escribir el texto a mano, para que un
+// cambio de nombre futuro no vuelva a desincronizar tarjetas/tabla/gráficos.
+const ESTADOS = {
+  PUNTUAL: "Puntual",
+  LEVE: "Tardanza Leve",
+  SUPERVISAR: "Tardanza a Supervisar",
+  SIN_ENTRADA: "Sin Entrada",
+};
+const ESTADOS_TARDANZA = [ESTADOS.LEVE, ESTADOS.SUPERVISAR];
+
+function esTardanza(estado) {
+  return ESTADOS_TARDANZA.includes(estado);
+}
+
+function norm(txt) {
+  return txt ? String(txt).trim().toLowerCase() : "";
+}
+
+// Normalización simple para comparar nombres (persona o PDV) entre dos
+// archivos distintos. Duplicada intencionalmente respecto a la de etl.js
+// (que hace lo mismo para nombres de persona) para que businessLogic.js no
+// dependa de que etl.js se haya cargado antes en la página.
+function normalizarClaveTexto(txt) {
+  return String(txt || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function horaAMinutos(horaStr) {
+  if (!horaStr) return null;
+  const partes = horaStr.split(":");
+  if (partes.length < 2) return null;
+  const h = parseInt(partes[0], 10);
+  const m = parseInt(partes[1], 10);
+  if (isNaN(h) || isNaN(m)) return null;
+  return h * 60 + m;
+}
+
+/**
+ * FUNCIÓN CENTRAL — determina el estado de asistencia de una entrada.
+ * Usada por calcularResumen (que alimenta tarjetas, tabla, gráficos y
+ * filtros) y reutilizada tal cual por las exportaciones a Excel y PDF, para
+ * que sea IMPOSIBLE que un componente muestre un estado distinto a otro.
+ *
+ * @param {number} minutosDesdeOficial - minutos transcurridos desde la hora
+ *   oficial de entrada, SIN restar la tolerancia (ej. entrada 08:26 -> 26).
+ * @param {boolean} huboEntrada - false si no existe marcación de entrada.
+ * @param {number} toleranciaMin - minutos de tolerancia (default 10).
+ * @param {number} leveMaxMin - minuto máximo (absoluto, desde la hora
+ *   oficial) hasta el cual una entrada tardía se considera "leve" antes de
+ *   pasar a "a supervisar" (default 29, i.e. hasta las 08:29 inclusive).
+ */
+function clasificarPuntualidad(minutosDesdeOficial, huboEntrada, toleranciaMin, leveMaxMin) {
+  if (!huboEntrada) return ESTADOS.SIN_ENTRADA;
+  if (minutosDesdeOficial <= toleranciaMin) return ESTADOS.PUNTUAL;
+  if (minutosDesdeOficial <= leveMaxMin) return ESTADOS.LEVE;
+  return ESTADOS.SUPERVISAR;
+}
+
+// ---------------------------------------------------------------------------
+// FORMATO CENTRALIZADO DE MINUTOS — usado por app.js y reportsClient.js para
+// que ningún lugar del dashboard muestre un número de tiempo sin su unidad.
+// ---------------------------------------------------------------------------
+function formatMinutos(minutos, opciones) {
+  opciones = opciones || {};
+  if (minutos === null || minutos === undefined || Number.isNaN(minutos) || !Number.isFinite(minutos)) {
+    return "—";
+  }
+  const val = Math.round(minutos);
+  let texto = `${val} min`;
+  if (opciones.conEquivalencia && Math.abs(val) >= 60) {
+    const signo = val < 0 ? "-" : "";
+    const abs = Math.abs(val);
+    const horas = Math.floor(abs / 60);
+    const resto = abs % 60;
+    texto += ` (${signo}${horas} h${resto ? " " + resto + " min" : ""})`;
+  }
+  return texto;
+}
+
+// Formatea el descanso mostrando el exceso respecto al límite permitido, sin
+// ambigüedad ("61 min (+1 min)" en vez de "61 +1"). Si no hay límite definido
+// (limite es null/undefined), solo muestra la duración.
+function formatDescanso(minutosRegistrados, limite) {
+  const base = formatMinutos(minutosRegistrados);
+  if (limite === null || limite === undefined || minutosRegistrados === null || minutosRegistrados === undefined) {
+    return base;
+  }
+  const exceso = minutosRegistrados - limite;
+  return exceso > 0 ? `${base} (+${exceso} min)` : base;
+}
+
+// Formatea la duración de una jornada como "9h 01m", pensado para leerse
+// más naturalmente que "541 min (9 h 1 min)" en la columna de horas trabajadas.
+function formatHorasTrabajadas(minutos) {
+  if (minutos === null || minutos === undefined || Number.isNaN(minutos) || !Number.isFinite(minutos)) {
+    return "—";
+  }
+  const val = Math.round(minutos);
+  const horas = Math.floor(val / 60);
+  const resto = val % 60;
+  return `${horas}h ${String(resto).padStart(2, "0")}m`;
+}
+
+/**
+ * Agrupa las filas limpias por (empleado, fecha) y calcula, para cada grupo,
+ * el resumen diario de asistencia. Devuelve un array de objetos listos para
+ * guardar en la tabla asistencia_resumen_diario.
+ *
+ * @param {Array} filas - salida de etl.leerYLimpiarExcel()
+ * @param {Object} config - { horaEntradaTeorica: "08:00", toleranciaMin: 10,
+ *                            tardanzaLeveMaxMin: 29, descansoPermitidoMin: 60 }
+ */
+function calcularResumen(filas, config) {
+  const horaEntradaTeoMin = horaAMinutos(config.horaEntradaTeorica) ?? 480;
+  const horasJornadaEsperadaMin = (config.horasJornadaEsperada ?? 8) * 60;
+  const tolerancia = config.toleranciaMin ?? 10;
+  const leveMaxMin = config.tardanzaLeveMaxMin ?? 29;
+  const descansoPermitido = config.descansoPermitidoMin ?? 60;
+
+  // Agrupar por empleado+fecha
+  const grupos = new Map();
+  for (const f of filas) {
+    const clave = `${f.id_empleado}|${f.fecha}`;
+    if (!grupos.has(clave)) grupos.set(clave, []);
+    grupos.get(clave).push(f);
+  }
+
+  const resumenes = [];
+  for (const [clave, grupo] of grupos.entries()) {
+    const [id_empleado, fecha] = clave.split("|");
+    const ordenadas = [...grupo].sort(
+      (a, b) => (horaAMinutos(a.hora_inicio) ?? 0) - (horaAMinutos(b.hora_inicio) ?? 0)
+    );
+
+    const horasInicioValidas = ordenadas.map((f) => f.hora_inicio).filter(Boolean);
+    const horasSalidaValidas = ordenadas.map((f) => f.hora_salida).filter(Boolean);
+
+    const primerCheckin = horasInicioValidas[0] || null;
+    const ultimoCheckout = horasSalidaValidas.length ? horasSalidaValidas[horasSalidaValidas.length - 1] : null;
+
+    const huboEntrada = primerCheckin !== null;
+    let minutosDesdeOficial = 0;
+    if (huboEntrada) {
+      const minCheckin = horaAMinutos(primerCheckin);
+      if (minCheckin !== null) minutosDesdeOficial = Math.max(0, minCheckin - horaEntradaTeoMin);
+    }
+    const clasificacion = clasificarPuntualidad(minutosDesdeOficial, huboEntrada, tolerancia, leveMaxMin);
+
+    const minutosDescanso = ordenadas
+      .filter((f) => ACTIVIDADES_DESCANSO.has(norm(f.actividad)))
+      .reduce((acc, f) => acc + (f.tiempo_transcurrido_min || 0), 0);
+    const excesoDescanso = Math.max(0, minutosDescanso - descansoPermitido);
+
+    const minutosTraslado = ordenadas
+      .filter((f) => ACTIVIDADES_TRASLADO.has(norm(f.actividad)))
+      .reduce((acc, f) => acc + (f.tiempo_transcurrido_min || 0), 0);
+
+    const minutosPdv = ordenadas
+      .filter((f) => !ACTIVIDADES_DESCANSO.has(norm(f.actividad)) && !ACTIVIDADES_TRASLADO.has(norm(f.actividad)))
+      .reduce((acc, f) => acc + (f.tiempo_transcurrido_min || 0), 0);
+
+    const pdvsVisitados = new Set(
+      ordenadas
+        .filter((f) => f.punto_venta && !ACTIVIDADES_DESCANSO.has(norm(f.actividad)) && !ACTIVIDADES_TRASLADO.has(norm(f.actividad)))
+        .map((f) => f.punto_venta)
+    );
+
+    // Identificadores de PDV visitados (ej. "PDV0347"), cuando el Excel de
+    // marcaciones los trae — es la clave preferida para cruzar contra la
+    // hoja de rutas asignadas (más confiable que el nombre).
+    const pdvsIdsVisitados = new Set(
+      ordenadas
+        .filter((f) => f.id_punto_venta && !ACTIVIDADES_DESCANSO.has(norm(f.actividad)) && !ACTIVIDADES_TRASLADO.has(norm(f.actividad)))
+        .map((f) => String(f.id_punto_venta).trim().toLowerCase())
+    );
+
+    // Secuencia ordenada cronológicamente (para dibujar la línea de ruta),
+    // colapsando visitas consecutivas al mismo PDV. rutaDetalle además lleva
+    // los minutos reales pasados en cada parada (para el tooltip de la ruta:
+    // "cuánto tiempo estuvo en el local").
+    const secuenciaCruda = ordenadas
+      .filter((f) => f.punto_venta && !ACTIVIDADES_DESCANSO.has(norm(f.actividad)) && !ACTIVIDADES_TRASLADO.has(norm(f.actividad)))
+      .map((f) => ({ pdv: f.punto_venta, minutos: f.tiempo_transcurrido_min || 0 }));
+    const rutaDetalle = [];
+    for (const parada of secuenciaCruda) {
+      const anterior = rutaDetalle[rutaDetalle.length - 1];
+      if (anterior && anterior.pdv === parada.pdv) anterior.minutos += parada.minutos;
+      else rutaDetalle.push({ ...parada });
+    }
+    const pdvsSecuencia = rutaDetalle.map((p) => p.pdv);
+
+    // Horas trabajadas en el día: desde el primer check-in hasta el último
+    // check-out (bruto), y horas EFECTIVAS descontando el descanso, que es
+    // lo que se compara contra la jornada obligatoria (por defecto 8 h) para
+    // determinar si el colaborador cumplió su jornada completa.
+    let minutosTrabajados = null;
+    let minutosEfectivos = null;
+    let cumplioJornada = false;
+    if (huboEntrada && ultimoCheckout && !ordenadas.some((f) => f.marcacion_abierta)) {
+      const minEntrada = horaAMinutos(primerCheckin);
+      const minSalida = horaAMinutos(ultimoCheckout);
+      if (minEntrada !== null && minSalida !== null && minSalida >= minEntrada) {
+        minutosTrabajados = minSalida - minEntrada;
+        minutosEfectivos = Math.max(0, minutosTrabajados - minutosDescanso);
+        cumplioJornada = minutosEfectivos >= horasJornadaEsperadaMin;
+      }
+    }
+
+    const tieneAbierta = ordenadas.some((f) => f.marcacion_abierta);
+
+    // --- Inconsistencias a nivel de día (se conservan y se marcan, no se eliminan) ---
+    const inconsistencias = [];
+    if (huboEntrada && ultimoCheckout) {
+      const minEntrada = horaAMinutos(primerCheckin);
+      const minSalida = horaAMinutos(ultimoCheckout);
+      if (minEntrada !== null && minSalida !== null && minEntrada > minSalida) {
+        inconsistencias.push("Entrada posterior a la salida");
+      }
+    }
+    if (!huboEntrada) inconsistencias.push("Falta marcación de entrada");
+    if (tieneAbierta) inconsistencias.push("Falta marcación de salida (marcación abierta)");
+    if (minutosDescanso < 0) inconsistencias.push("Descanso con duración negativa");
+    if (excesoDescanso > 0) inconsistencias.push(`Descanso excede el límite permitido (+${excesoDescanso} min)`);
+    const minutosTotalDia = minutosPdv + minutosTraslado + minutosDescanso;
+    if (minutosTotalDia > 24 * 60) inconsistencias.push("Tiempo total del día superior a 24 horas (dato imposible)");
+    // Auto-verificación de la regla central (no debería ocurrir nunca; si
+    // aparece, es señal de un error de configuración, no de los datos).
+    if (clasificacion === ESTADOS.PUNTUAL && minutosDesdeOficial > tolerancia) {
+      inconsistencias.push("Verificar regla: clasificado Puntual fuera de tolerancia");
+    }
+    if (clasificacion !== ESTADOS.PUNTUAL && clasificacion !== ESTADOS.SIN_ENTRADA && minutosDesdeOficial <= tolerancia) {
+      inconsistencias.push("Verificar regla: tardanza dentro de tolerancia");
+    }
+
+    const [y, mo] = fecha.split("-");
+
+    resumenes.push({
+      id_empleado,
+      fecha,
+      periodo: `${y}-${mo}`,
+      primer_checkin: primerCheckin,
+      ultimo_checkout: ultimoCheckout,
+      minutos_tardanza: minutosDesdeOficial,
+      clasificacion_puntualidad: clasificacion,
+      minutos_descanso_total: minutosDescanso,
+      minutos_exceso_descanso: excesoDescanso,
+      alerta_exceso_descanso: excesoDescanso > 0,
+      minutos_pdv: minutosPdv,
+      minutos_traslado: minutosTraslado,
+      pdvs_unicos_visitados: pdvsVisitados.size,
+      lista_pdvs: pdvsVisitados.size ? [...pdvsVisitados].sort().join("; ") : null,
+      pdvs_secuencia: pdvsSecuencia,
+      pdvs_ids_visitados: [...pdvsIdsVisitados],
+      ruta_detalle: rutaDetalle,
+      minutos_trabajados: minutosTrabajados,
+      minutos_efectivos: minutosEfectivos,
+      cumplio_jornada: cumplioJornada,
+      tiene_marcacion_abierta: tieneAbierta,
+      inconsistencias,
+      tiene_inconsistencia: inconsistencias.length > 0,
+      // Estos tres campos los completa evaluarCumplimientoRuta() después,
+      // si hay un catálogo de rutas asignadas cargado. Por defecto (sin
+      // catálogo, o persona sin ruta asignada) quedan en null = "no medir".
+      ruta_pdvs_esperados: null,
+      ruta_cumplida: null,
+      ruta_pdvs_faltantes: null,
+    });
+  }
+  return resumenes;
+}
+
+// ---------------------------------------------------------------------------
+// CUMPLIMIENTO DE RUTA ASIGNADA
+// ---------------------------------------------------------------------------
+const DIAS_SEMANA_JS = ["DO", "LU", "MA", "MI", "JU", "VI", "SA"]; // Date.getDay(): 0=domingo
+
+// Convierte "YYYY-MM-DD" al código de día usado en la hoja de rutas (LU..SA).
+// Construye la fecha en horario LOCAL (no UTC) para evitar que un huso
+// horario negativo corra el día al calcular getDay().
+function diaSemanaCodigo(fechaISO) {
+  const [y, m, d] = fechaISO.split("-").map(Number);
+  const fecha = new Date(y, m - 1, d);
+  return DIAS_SEMANA_JS[fecha.getDay()];
+}
+
+/**
+ * Enriquece (in-place) el array de resumenes con el cumplimiento de ruta,
+ * usando el catálogo de asignaciones (persona + PDV + días obligatorios).
+ *
+ * Reglas (confirmadas con el usuario):
+ *  - Si la persona no aparece en el catálogo de rutas -> no se mide (null).
+ *  - Si la persona aparece pero ninguna de sus filas tiene día definido para
+ *    la fecha en cuestión -> tampoco se mide ese día (null). Las filas sin
+ *    día NUNCA generan una obligación, sea cual sea la fecha.
+ *  - Si hay PDVs esperados ese día de la semana -> se compara contra los
+ *    PDVs realmente visitados. El cruce se hace PRIMERO por identificador
+ *    (ej. "PDV0347", el mismo código que trae el Excel de marcaciones en
+ *    "Identificador de Punto de Interés") y, si el catálogo de rutas no
+ *    trajo identificador para esa fila, se usa el nombre del PDV como
+ *    respaldo. Si falta alguno, se agrega una inconsistencia "Ruta
+ *    incompleta: ..." para que aparezca también en la franja de Atención
+ *    Requerida sin duplicar lógica.
+ *
+ * @param {Array} resumenes - salida de calcularResumen(), se modifica in-place
+ * @param {Array} asignaciones - salida de etl.leerRutasAsignadas().asignaciones
+ * @param {Map} nombresPorIdEmpleado - Map(id_empleado -> nombre), para poder
+ *   cruzar por nombre ya que el catálogo de rutas no trae ID de empleado.
+ */
+function evaluarCumplimientoRuta(resumenes, asignaciones, nombresPorIdEmpleado) {
+  if (!asignaciones || !asignaciones.length) return resumenes;
+
+  // Agrupar asignaciones por persona (normalizada), solo las que tienen
+  // al menos un día definido (las de "dias: []" nunca generan obligación).
+  const porPersona = new Map();
+  for (const a of asignaciones) {
+    if (!a.dias.length) continue;
+    if (!porPersona.has(a.nombre_normalizado)) porPersona.set(a.nombre_normalizado, []);
+    porPersona.get(a.nombre_normalizado).push(a);
+  }
+
+  for (const r of resumenes) {
+    const nombre = nombresPorIdEmpleado.get(r.id_empleado);
+    if (!nombre) continue;
+    const clave = normalizarClaveTexto(nombre);
+    const filasPersona = porPersona.get(clave);
+    if (!filasPersona || !filasPersona.length) continue; // persona sin ruta asignada -> no se mide
+
+    const codigoDia = diaSemanaCodigo(r.fecha);
+    const asignacionesHoy = filasPersona.filter((f) => f.dias.includes(codigoDia));
+    if (!asignacionesHoy.length) continue; // esta persona no tiene obligación este día específico
+
+    // Deduplicar por clave_pdv, conservando el nombre para mostrar en la UI.
+    const esperadosMap = new Map(); // clave_pdv -> nombre a mostrar
+    for (const a of asignacionesHoy) esperadosMap.set(a.clave_pdv, a.punto_venta);
+
+    // Conjunto combinado de lo efectivamente visitado: identificadores (clave
+    // preferida) + nombres normalizados (respaldo), para que el cruce
+    // funcione tanto si el catálogo de rutas trae identificador como si no.
+    const visitadosClaves = new Set([
+      ...(r.pdvs_ids_visitados || []),
+      ...(r.pdvs_secuencia || []).map((n) => normalizarClaveTexto(n)),
+    ]);
+
+    const faltantes = [];
+    const esperadosNombres = [];
+    for (const [clavePdv, nombrePdv] of esperadosMap.entries()) {
+      esperadosNombres.push(nombrePdv);
+      if (!visitadosClaves.has(clavePdv)) faltantes.push(nombrePdv);
+    }
+
+    r.ruta_pdvs_esperados = esperadosNombres;
+    r.ruta_cumplida = faltantes.length === 0;
+    r.ruta_pdvs_faltantes = faltantes;
+
+    if (faltantes.length > 0) {
+      r.inconsistencias.push(`Ruta incompleta: faltó visitar ${faltantes.join(", ")}`);
+      r.tiene_inconsistencia = true;
+    }
+  }
+  return resumenes;
+}
+
+if (typeof module !== "undefined") {
+  module.exports = {
+    calcularResumen,
+    clasificarPuntualidad,
+    horaAMinutos,
+    formatMinutos,
+    formatDescanso,
+    formatHorasTrabajadas,
+    esTardanza,
+    diaSemanaCodigo,
+    evaluarCumplimientoRuta,
+    ESTADOS,
+    ESTADOS_TARDANZA,
+  };
+}
+
+
+// ============================================================================
+// reportsClient.js — Generación de reportes en el navegador
+// Usa las librerías globales XLSX (SheetJS) y jspdf + jspdf-autotable (CDN).
+// Usa la MISMA función central de clasificación y el mismo formateador de
+// minutos que el resto del dashboard (businessLogic.js), para que Excel y
+// PDF sean consistentes con las tarjetas, la tabla y los gráficos.
+// ============================================================================
+
+function descargarBlob(blob, nombreArchivo) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nombreArchivo;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * @param {Array} resumenes - filas de asistencia_resumen_diario con `nombre` incluido (ya filtradas por la UI)
+ * @param {Array} marcaciones - filas de marcaciones_detalle con `nombre` incluido, del/los periodo(s) completo(s)
+ * @param {string} etiquetaPeriodo - usado solo para el nombre del archivo
+ * @param {Object} meta - { periodoTexto, filtros: {colaboradores, estados, rango}, limiteDescanso }
+ */
+function exportarExcelConsolidado(resumenes, marcaciones, etiquetaPeriodo, meta) {
+  meta = meta || {};
+  // ---- Hoja "Información": período, filtros aplicados y fecha de generación ----
+  const infoFilas = [
+    { Campo: "Período analizado", Valor: meta.periodoTexto || "—" },
+    { Campo: "Colaboradores (filtro)", Valor: (meta.filtros && meta.filtros.colaboradores) || "Todos los colaboradores" },
+    { Campo: "Estados (filtro)", Valor: (meta.filtros && meta.filtros.estados) || "Todos los estados" },
+    { Campo: "Rango de fechas (filtro)", Valor: (meta.filtros && meta.filtros.rango) || "Sin restricción de fecha" },
+    { Campo: "Fecha y hora de generación", Valor: new Date().toLocaleString("es-ES") },
+    { Campo: "Nota", Valor: "La hoja 'Marcaciones Detalle' incluye todas las marcaciones del período completo, sin aplicar los filtros de colaborador/estado/fecha (respaldo de auditoría)." },
+  ];
+
+  // ---- Hoja 1: Resumen Ejecutivo por Empleado (agregado del período filtrado) ----
+  const porEmpleado = new Map();
+  for (const r of resumenes) {
+    const key = r.id_empleado;
+    if (!porEmpleado.has(key)) {
+      porEmpleado.set(key, {
+        "ID Empleado": r.id_empleado,
+        "Nombre": r.nombre,
+        "Dias_Trabajados": new Set(),
+        "Cantidad_Tardanzas": 0,
+        "Cantidad_Tardanzas_Leves": 0,
+        "Cantidad_Tardanzas_Supervisar": 0,
+        "Minutos_Acumulados_Tardanza": 0,
+        "Minutos_PDV": 0,
+        "Minutos_Traslado": 0,
+        "Exceso_Descanso_Total_Min": 0,
+        "Dias_Sin_Entrada": 0,
+      });
+    }
+    const acc = porEmpleado.get(key);
+    acc.Dias_Trabajados.add(r.fecha);
+    if (esTardanza(r.clasificacion_puntualidad)) {
+      acc.Cantidad_Tardanzas += 1;
+      acc.Minutos_Acumulados_Tardanza += r.minutos_tardanza || 0;
+    }
+    if (r.clasificacion_puntualidad === ESTADOS.LEVE) acc.Cantidad_Tardanzas_Leves += 1;
+    if (r.clasificacion_puntualidad === ESTADOS.SUPERVISAR) acc.Cantidad_Tardanzas_Supervisar += 1;
+    if (r.clasificacion_puntualidad === ESTADOS.SIN_ENTRADA) acc.Dias_Sin_Entrada += 1;
+    acc.Minutos_PDV += r.minutos_pdv || 0;
+    acc.Minutos_Traslado += r.minutos_traslado || 0;
+    acc.Exceso_Descanso_Total_Min += r.minutos_exceso_descanso || 0;
+  }
+  const resumenEjecutivo = [...porEmpleado.values()].map((r) => ({
+    "ID Empleado": r["ID Empleado"],
+    "Nombre": r["Nombre"],
+    "Días Trabajados": r.Dias_Trabajados.size,
+    "Cantidad de Tardanzas": r.Cantidad_Tardanzas,
+    "Tardanzas Leves": r.Cantidad_Tardanzas_Leves,
+    "Tardanzas a Supervisar": r.Cantidad_Tardanzas_Supervisar,
+    "Minutos Acumulados de Tardanza": r.Minutos_Acumulados_Tardanza,
+    "Horas PDV": Math.round((r.Minutos_PDV / 60) * 10) / 10,
+    "Horas Traslado": Math.round((r.Minutos_Traslado / 60) * 10) / 10,
+    "Exceso Descanso Total (min)": r.Exceso_Descanso_Total_Min,
+    "Días Sin Entrada": r.Dias_Sin_Entrada,
+  }));
+
+  // ---- Hoja 2: Detalle Diario (valores numéricos con unidad aclarada en el encabezado) ----
+  const detalleDiario = resumenes.map((r) => ({
+    "ID Empleado": r.id_empleado,
+    "Nombre": r.nombre,
+    "Fecha": r.fecha,
+    "Entrada": r.primer_checkin,
+    "Salida": r.ultimo_checkout,
+    "Estado": r.clasificacion_puntualidad,
+    "Minutos desde las 08:00": r.minutos_tardanza,
+    "Descanso (min)": r.minutos_descanso_total,
+    "Exceso Descanso (min)": r.minutos_exceso_descanso,
+    "Minutos Trabajados (bruto)": r.minutos_trabajados,
+    "Horas Efectivas (min)": r.minutos_efectivos,
+    "Cumplió Jornada": r.minutos_efectivos === null ? "—" : r.cumplio_jornada ? "Sí" : "No",
+    "PDVs Esperados (ruta asignada)": r.ruta_pdvs_esperados ? r.ruta_pdvs_esperados.join("; ") : "—",
+    "Ruta Cumplida": r.ruta_cumplida === null || r.ruta_cumplida === undefined ? "Sin ruta asignada" : r.ruta_cumplida ? "Sí" : "No",
+    "PDVs Faltantes": r.ruta_pdvs_faltantes && r.ruta_pdvs_faltantes.length ? r.ruta_pdvs_faltantes.join("; ") : "—",
+    "Minutos PDV": r.minutos_pdv,
+    "Minutos Traslado": r.minutos_traslado,
+    "PDVs Únicos": r.pdvs_unicos_visitados,
+    "PDVs Visitados": r.lista_pdvs,
+    "Marcación Abierta": r.tiene_marcacion_abierta ? "Sí" : "No",
+    "Inconsistencias": (r.inconsistencias || []).join("; ") || "—",
+  }));
+
+  // ---- Hoja 3: Inconsistencias ----
+  const inconsistencias = detalleDiario.filter(
+    (r) => r["Marcación Abierta"] === "Sí" || r["Inconsistencias"] !== "—" || r["Exceso Descanso (min)"] > 0
+  );
+
+  // ---- Hoja 4: Marcaciones fila a fila (SIEMPRE el período completo, sin filtros de UI) ----
+  const detalleMarcaciones = marcaciones.map((m) => ({
+    "ID Empleado": m.id_empleado,
+    "Nombre": m.nombre,
+    "Fecha": m.fecha,
+    "Punto de Venta": m.punto_venta,
+    "Actividad": m.actividad,
+    "Hora Inicio": m.hora_inicio,
+    "Hora Salida": m.hora_salida || "Sin cierre",
+    "Duración (min)": m.tiempo_transcurrido_min,
+  }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(infoFilas), "Información");
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.json_to_sheet(resumenEjecutivo.length ? resumenEjecutivo : [{ Info: "Sin datos para el período/filtros seleccionados" }]),
+    "Resumen Ejecutivo"
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.json_to_sheet(detalleDiario.length ? detalleDiario : [{ Info: "Sin datos" }]),
+    "Detalle Diario"
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.json_to_sheet(inconsistencias.length ? inconsistencias : [{ Info: "Sin inconsistencias" }]),
+    "Inconsistencias"
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.json_to_sheet(detalleMarcaciones.length ? detalleMarcaciones : [{ Info: "Sin datos" }]),
+    "Marcaciones Detalle"
+  );
+
+  const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([wbout], { type: "application/octet-stream" });
+  descargarBlob(blob, `Consolidado_Asistencia_${etiquetaPeriodo}.xlsx`);
+}
+
+/**
+ * @param {Array} registrosDelDia - filas de asistencia_resumen_diario (con `nombre`) de una sola fecha
+ * @param {string} fecha - "YYYY-MM-DD"
+ * @param {number} limiteDescanso - límite de descanso permitido (min), para mostrar el exceso con claridad
+ */
+function exportarPdfResumenDiario(registrosDelDia, fecha, limiteDescanso) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "cm", format: "letter" });
+  const azul = [23, 27, 34];
+  const [y, m, d] = fecha.split("-");
+
+  doc.setFontSize(16);
+  doc.setTextColor(...azul);
+  doc.text("Ficha Ejecutiva Diaria — Control de Asistencia y Rutas", 1.2, 1.3);
+  doc.setFontSize(10);
+  doc.setTextColor(120, 120, 120);
+  doc.text(`Fecha: ${d}/${m}/${y}  ·  Generado el ${new Date().toLocaleString("es-ES")}`, 1.2, 1.9);
+
+  if (!registrosDelDia.length) {
+    doc.setTextColor(30, 30, 30);
+    doc.setFontSize(11);
+    doc.text("No hay registros de asistencia para esta fecha.", 1.2, 2.8);
+    doc.save(`Ficha_Diaria_${fecha}.pdf`);
+    return;
+  }
+
+  const total = registrosDelDia.length;
+  const puntuales = registrosDelDia.filter((r) => r.clasificacion_puntualidad === ESTADOS.PUNTUAL).length;
+  const leves = registrosDelDia.filter((r) => r.clasificacion_puntualidad === ESTADOS.LEVE).length;
+  const supervisar = registrosDelDia.filter((r) => r.clasificacion_puntualidad === ESTADOS.SUPERVISAR).length;
+  const sinEntrada = registrosDelDia.filter((r) => r.clasificacion_puntualidad === ESTADOS.SIN_ENTRADA).length;
+
+  doc.autoTable({
+    startY: 2.3,
+    head: [["Colaboradores", "Puntuales", "Tardanza Leve", "Tardanza a Supervisar", "Sin Entrada"]],
+    body: [[total, puntuales, leves, supervisar, sinEntrada]],
+    theme: "grid",
+    headStyles: { fillColor: azul, halign: "center" },
+    bodyStyles: { halign: "center", fontSize: 9 },
+    margin: { left: 1.2, right: 1.2 },
+  });
+
+  const ordenados = [...registrosDelDia].sort((a, b) => a.nombre.localeCompare(b.nombre));
+  const filas = ordenados.map((r) => {
+    let ruta = r.lista_pdvs || "—";
+    if (ruta.length > 32) ruta = ruta.slice(0, 29) + "...";
+    const salidaTexto = r.ultimo_checkout || (r.tiene_marcacion_abierta ? "Abierta" : "—");
+    return [
+      r.nombre,
+      r.primer_checkin || "—",
+      salidaTexto,
+      r.clasificacion_puntualidad,
+      formatMinutos(r.minutos_tardanza),
+      formatDescanso(r.minutos_descanso_total, limiteDescanso),
+      r.minutos_efectivos === null ? "—" : `${formatHorasTrabajadas(r.minutos_efectivos)}${r.cumplio_jornada ? "" : " ⚠"}`,
+      r.pdvs_unicos_visitados ?? 0,
+      ruta,
+    ];
+  });
+
+  doc.autoTable({
+    startY: doc.lastAutoTable.finalY + 0.6,
+    head: [["Colaborador", "Entrada", "Salida", "Estado", "Min. desde las 08:00", "Descanso (min)", "Horas efectivas", "PDV", "Ruta"]],
+    body: filas,
+    theme: "grid",
+    headStyles: { fillColor: azul, fontSize: 7.5 },
+    bodyStyles: { fontSize: 7 },
+    margin: { left: 1.2, right: 1.2 },
+    didParseCell: function (data) {
+      if (data.section !== "body") return;
+      const row = ordenados[data.row.index];
+      if (!row) return;
+      if (row.clasificacion_puntualidad === ESTADOS.SUPERVISAR || row.tiene_marcacion_abierta) {
+        data.cell.styles.fillColor = [250, 219, 216];
+      } else if (row.clasificacion_puntualidad === ESTADOS.LEVE || row.alerta_exceso_descanso) {
+        data.cell.styles.fillColor = [253, 235, 208];
+      } else if (row.clasificacion_puntualidad === ESTADOS.PUNTUAL) {
+        data.cell.styles.fillColor = [213, 245, 227];
+      }
+    },
+  });
+
+  // --- Sección de inconsistencias del día ---
+  const conInconsistencia = ordenados.filter((r) => r.tiene_inconsistencia);
+  if (conInconsistencia.length) {
+    doc.autoTable({
+      startY: doc.lastAutoTable.finalY + 0.6,
+      head: [["Inconsistencias detectadas (no se eliminan, quedan marcadas para revisión)"]],
+      body: conInconsistencia.map((r) => [`${r.nombre}: ${(r.inconsistencias || []).join("; ")}`]),
+      theme: "grid",
+      headStyles: { fillColor: [178, 59, 50], fontSize: 8 },
+      bodyStyles: { fontSize: 7.5 },
+      margin: { left: 1.2, right: 1.2 },
+    });
+  }
+
+  doc.setFontSize(8);
+  doc.setTextColor(140, 140, 140);
+  doc.text(
+    `Sistema de Control de Asistencia y Gestión de Rutas PDV — todas las duraciones se expresan en minutos.`,
+    1.2,
+    doc.internal.pageSize.getHeight() - 1
+  );
+
+  doc.save(`Ficha_Diaria_${fecha}.pdf`);
+}
+
+
+// ============================================================================
+// app.js — Orquestador principal, 100% local (sin backend, sin Supabase).
+// Todo el procesamiento y almacenamiento ocurre en este navegador (IndexedDB).
+//
+// Todas las tarjetas, gráficos, tabla, filtros y exportaciones consumen la
+// MISMA fuente de datos (cacheResumen / dfFiltradoActual) y la MISMA función
+// central de clasificación (clasificarPuntualidad, en businessLogic.js), así
+// que es estructuralmente imposible que un componente muestre un estado
+// distinto a otro.
+// ============================================================================
+
+let charts = { ranking: null, minutosTardanza: null, evolucion: null, distribucion: null, tendencia: null };
+let cacheResumen = []; // dataset completo del/los período(s) seleccionados, SIN filtros de UI
+let dfFiltradoActual = []; // último resultado tras aplicar filtros de UI (usado también por exportación)
+let periodosDisponibles = [];
+let msEmpleado, msEstado, msPdv; // instancias del multiselect propio (ver más abajo)
+let filtroCategoriaInconsistencia = null; // categoría activa al hacer clic en un chip de "Atención requerida"
+let paginaActual = 1;
+let filasPorPagina = 15;
+let ultimoDfTabla = []; // último dataset ya filtrado que alimenta la tabla (para paginar sin recalcular)
+
+const MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+function nombreMes(periodoYYYYMM) {
+  const [y, m] = periodoYYYYMM.split("-");
+  return `${MESES_ES[parseInt(m, 10) - 1]} ${y}`;
+}
+function fechaLegible(fechaISO) {
+  if (!fechaISO) return "—";
+  const [y, m, d] = fechaISO.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+// ---------------------------------------------------------------------------
+// RELOJ DEL ENCABEZADO
+// ---------------------------------------------------------------------------
+function actualizarReloj() {
+  const el = document.getElementById("relojHeader");
+  if (!el) return;
+  const ahora = new Date();
+  const fecha = ahora.toLocaleDateString("es-ES", { weekday: "short", day: "2-digit", month: "short" });
+  const hora = ahora.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+  el.textContent = `${fecha} · ${hora}`;
+}
+setInterval(actualizarReloj, 15000);
+
+// ---------------------------------------------------------------------------
+// SIDEBAR DESPLEGABLE (pantallas pequeñas)
+// ---------------------------------------------------------------------------
+document.getElementById("sidebarToggleBtn").addEventListener("click", () => {
+  const abierto = document.getElementById("sidebar").classList.toggle("abierto");
+  document.getElementById("sidebarToggleBtn").setAttribute("aria-expanded", String(abierto));
+});
+
+// El gráfico "Minutos de tardanza por colaborador" vive dentro de un <details>
+// colapsable. Chart.js no puede calcular el tamaño correcto de un <canvas>
+// que está oculto (display:none) al momento de crearse, así que se le pide
+// que recalcule su tamaño justo cuando la sección se abre.
+document.querySelector(".detalle-tardanzas")?.addEventListener("toggle", (e) => {
+  if (e.target.open && charts.minutosTardanza) {
+    charts.minutosTardanza.resize();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// COMPONENTE: multiselect propio (reemplaza el <select multiple> nativo,
+// cuyo texto de resumen ("0 elementos seleccionados") varía de forma
+// inconsistente entre navegadores y no se puede personalizar de forma fiable).
+// ---------------------------------------------------------------------------
+function crearMultiSelect(rootId, etiquetaTodos) {
+  const root = document.getElementById(rootId);
+  const btn = root.querySelector(".multiselect-btn");
+  const panel = root.querySelector(".multiselect-panel");
+  let opciones = [];
+  let seleccionados = new Set();
+  let onChangeCb = null;
+
+  function actualizarBoton() {
+    if (seleccionados.size === 0) btn.textContent = etiquetaTodos;
+    else if (seleccionados.size === 1) btn.textContent = [...seleccionados][0];
+    else btn.textContent = `${seleccionados.size} seleccionados`;
+    btn.classList.toggle("has-selection", seleccionados.size > 0);
+  }
+
+  function render() {
+    if (!opciones.length) {
+      panel.innerHTML = `<div class="ms-empty muted">Sin opciones para este período</div>`;
+      return;
+    }
+    panel.innerHTML = opciones
+      .map(
+        (op) => `
+      <label class="ms-option">
+        <input type="checkbox" value="${op.replace(/"/g, "&quot;")}" ${seleccionados.has(op) ? "checked" : ""} />
+        <span>${op}</span>
+      </label>`
+      )
+      .join("");
+  }
+
+  panel.addEventListener("change", (e) => {
+    if (e.target.tagName !== "INPUT") return;
+    if (e.target.checked) seleccionados.add(e.target.value);
+    else seleccionados.delete(e.target.value);
+    actualizarBoton();
+    if (onChangeCb) onChangeCb();
+  });
+
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.querySelectorAll(".multiselect-panel").forEach((p) => {
+      if (p !== panel) p.classList.add("hidden");
+    });
+    panel.classList.toggle("hidden");
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!root.contains(e.target)) panel.classList.add("hidden");
+  });
+
+  return {
+    setOpciones(nuevas) {
+      const nuevasSet = new Set(nuevas);
+      seleccionados = new Set([...seleccionados].filter((v) => nuevasSet.has(v)));
+      opciones = nuevas;
+      render();
+      actualizarBoton();
+    },
+    getSeleccionados() {
+      return [...seleccionados];
+    },
+    limpiar() {
+      seleccionados = new Set();
+      render();
+      actualizarBoton();
+    },
+    onChange(cb) {
+      onChangeCb = cb;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// CONFIGURACIÓN DE NEGOCIO
+// ---------------------------------------------------------------------------
+async function cargarConfiguracion() {
+  const filas = await dbGetAll("configuracion");
+  const cfg = {};
+  filas.forEach((row) => (cfg[row.clave] = row.valor));
+  return {
+    horaEntradaTeorica: cfg.hora_entrada_teorica || "08:00",
+    horasJornadaEsperada: parseFloat(cfg.horas_jornada_esperada || "8"),
+    toleranciaMin: parseInt(cfg.tolerancia_min || "10", 10),
+    tardanzaLeveMaxMin: parseInt(cfg.tardanza_leve_max_min || "29", 10),
+    descansoPermitidoMin: parseInt(cfg.descanso_permitido_min || "60", 10),
+  };
+}
+
+async function poblarPanelConfiguracion() {
+  const cfg = await cargarConfiguracion();
+  document.getElementById("cfgHoraEntrada").value = cfg.horaEntradaTeorica;
+  document.getElementById("cfgHorasJornada").value = cfg.horasJornadaEsperada;
+  document.getElementById("cfgTolerancia").value = cfg.toleranciaMin;
+  document.getElementById("cfgTardanzaLeve").value = cfg.tardanzaLeveMaxMin;
+  document.getElementById("cfgDescanso").value = cfg.descansoPermitidoMin;
+}
+
+document.getElementById("guardarCfgBtn").addEventListener("click", async () => {
+  const statusEl = document.getElementById("cfgStatus");
+  statusEl.textContent = "Guardando y recalculando...";
+  statusEl.className = "status-msg";
+  const dashboardYaVisible = !document.getElementById("dashboardContent").classList.contains("hidden");
+  try {
+    await dbPutMany("configuracion", [
+      { clave: "hora_entrada_teorica", valor: document.getElementById("cfgHoraEntrada").value.trim() },
+      { clave: "horas_jornada_esperada", valor: document.getElementById("cfgHorasJornada").value },
+      { clave: "tolerancia_min", valor: document.getElementById("cfgTolerancia").value },
+      { clave: "tardanza_leve_max_min", valor: document.getElementById("cfgTardanzaLeve").value },
+      { clave: "descanso_permitido_min", valor: document.getElementById("cfgDescanso").value },
+    ]);
+    await recalcularTodoElHistorico();
+    const cfg = await cargarConfiguracion();
+    limiteDescansoActual = cfg.descansoPermitidoMin;
+    statusEl.textContent = "Configuración guardada y datos recalculados.";
+    statusEl.classList.add("ok");
+    // Solo se vuelve a mostrar el dashboard si YA estaba visible antes de
+    // guardar; si estaba oculto (aún no se pidió ver el historial), se
+    // recalcula igual en segundo plano pero se mantiene oculto.
+    if (dashboardYaVisible) {
+      await refrescarPeriodosYVista();
+    } else {
+      await refrescarListaDePeriodos();
+    }
+  } catch (err) {
+    statusEl.textContent = "Error: " + err.message;
+    statusEl.classList.add("error");
+  }
+});
+
+async function obtenerNombresPorIdEmpleado() {
+  const empleados = await dbGetAll("empleados");
+  return new Map(empleados.map((e) => [e.id_empleado, e.nombre]));
+}
+
+async function recalcularTodoElHistorico() {
+  const periodos = await dbGetAll("periodos_cargados");
+  const config = await cargarConfiguracion();
+  const asignaciones = await dbGetAll("rutas_asignadas");
+  const nombresPorId = await obtenerNombresPorIdEmpleado();
+  for (const { periodo } of periodos) {
+    const marcaciones = await dbGetByIndex("marcaciones_detalle", "periodo", periodo);
+    const resumenes = calcularResumen(marcaciones, config);
+    evaluarCumplimientoRuta(resumenes, asignaciones, nombresPorId);
+    await guardarResumenes(periodo, resumenes);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// BORRAR TODOS LOS DATOS LOCALES
+// ---------------------------------------------------------------------------
+document.getElementById("borrarDatosBtn").addEventListener("click", async () => {
+  const ok = confirm(
+    "Esto borra TODO el histórico guardado en este navegador (todos los meses cargados). ¿Continuar?"
+  );
+  if (!ok) return;
+  await dbClearAll();
+  await asegurarConfiguracionInicial();
+  location.reload();
+});
+
+// ---------------------------------------------------------------------------
+// INGESTA DE EXCEL
+// ---------------------------------------------------------------------------
+let archivoSeleccionado = null;
+
+document.getElementById("fileInput").addEventListener("change", (e) => {
+  archivoSeleccionado = e.target.files[0] || null;
+  document.getElementById("procesarBtn").disabled = !archivoSeleccionado;
+  document.getElementById("uploadResumen").classList.add("hidden");
+});
+
+document.getElementById("procesarBtn").addEventListener("click", async () => {
+  if (!archivoSeleccionado) return;
+  const statusEl = document.getElementById("uploadStatus");
+  const spinnerEl = document.getElementById("uploadSpinner");
+  const resumenEl = document.getElementById("uploadResumen");
+  statusEl.textContent = "Leyendo y procesando archivo...";
+  statusEl.className = "status-msg";
+  spinnerEl.classList.remove("hidden");
+  resumenEl.classList.add("hidden");
+
+  try {
+    const arrayBuffer = await archivoSeleccionado.arrayBuffer();
+    const { filas, meta } = leerYLimpiarExcel(arrayBuffer);
+    if (!filas.length) {
+      throw new Error(
+        meta.filasTotalesHoja === 0
+          ? "El archivo está vacío o la hoja no contiene filas."
+          : "No se encontraron filas válidas (revisa fechas y columnas obligatorias)."
+      );
+    }
+
+    const periodoManual = document.getElementById("periodoManual").value.trim();
+    const periodo = periodoManual || detectarPeriodo(filas);
+
+    // 1) Upsert de empleados (catálogo maestro)
+    const empleadosUnicos = [...new Map(filas.map((f) => [f.id_empleado, f.nombre])).entries()].map(
+      ([id_empleado, nombre]) => ({ id_empleado, nombre })
+    );
+    await dbPutMany("empleados", empleadosUnicos);
+
+    // 2) Reemplazar marcaciones del periodo (borra + inserta, evita duplicar al resubir el mismo mes)
+    await dbDeleteByIndex("marcaciones_detalle", "periodo", periodo);
+    const marcacionesInsert = filas.map((f) => ({
+      id_empleado: f.id_empleado,
+      fecha: f.fecha,
+      punto_venta: f.punto_venta,
+      id_punto_venta: f.id_punto_venta,
+      actividad: f.actividad,
+      hora_inicio: f.hora_inicio,
+      hora_salida: f.hora_salida,
+      tiempo_transcurrido_min: f.tiempo_transcurrido_min,
+      marcacion_abierta: f.marcacion_abierta,
+      periodo: f.periodo,
+    }));
+    await dbPutMany("marcaciones_detalle", marcacionesInsert);
+
+    // 3) Calcular reglas de negocio (antes de guardar el período, para poder
+    //    registrar si hubo advertencias reales en el historial de procesos)
+    const config = await cargarConfiguracion();
+    const resumenes = calcularResumen(filas, config);
+
+    // 3a) Si está activada la sincronización automática, intentar traer la
+    //     versión más reciente del catálogo de rutas ANTES de evaluar
+    //     cumplimiento (best-effort: si falla — sin internet, hoja no
+    //     publicada, etc. — se sigue con lo que ya haya guardado localmente).
+    const cfgSync = await dbGetAll("configuracion");
+    const autoSyncActivo = cfgSync.find((c) => c.clave === "rutas_auto_sync")?.valor === "1";
+    if (autoSyncActivo) {
+      await sincronizarRutasDesdeGoogleSheets(true);
+    }
+
+    // 3b) Aplicar cumplimiento de ruta asignada, si hay un catálogo cargado
+    const nombresPorId = new Map(empleadosUnicos.map((e) => [e.id_empleado, e.nombre]));
+    const asignacionesRuta = await dbGetAll("rutas_asignadas");
+    evaluarCumplimientoRuta(resumenes, asignacionesRuta, nombresPorId);
+
+    const inconsistenciasResumen = resumenes.filter((r) => r.tiene_inconsistencia).length;
+    const inconsistenciasTotal =
+      inconsistenciasResumen + meta.fechasInvalidas + meta.horasInvalidas + meta.duplicadosDetectados;
+    const advertencias = [];
+    if (meta.fechasInvalidas > 0) advertencias.push(`${meta.fechasInvalidas} fila(s) con fecha inválida (descartadas)`);
+    if (meta.horasInvalidas > 0) advertencias.push(`${meta.horasInvalidas} fila(s) con hora no interpretable`);
+    if (meta.duplicadosDetectados > 0) advertencias.push(`${meta.duplicadosDetectados} registro(s) duplicado(s) detectado(s)`);
+    if (meta.filasDescartadas > 0) advertencias.push(`${meta.filasDescartadas} fila(s) descartadas por datos incompletos`);
+    if (meta.columnasOpcionalesNoDetectadas && meta.columnasOpcionalesNoDetectadas.length) {
+      advertencias.push(
+        `No se detectó la columna "${meta.columnasOpcionalesNoDetectadas.join('", "')}" — esos datos quedarán vacíos o en 0`
+      );
+    }
+
+    // 4) Registrar el periodo cargado (con dato real de advertencias, para el
+    //    historial de procesos en la barra lateral)
+    await dbPut("periodos_cargados", {
+      periodo,
+      nombre_archivo_original: archivoSeleccionado.name,
+      filas_procesadas: marcacionesInsert.length,
+      empleados_afectados: empleadosUnicos.length,
+      fecha_carga: new Date().toISOString(),
+      inconsistencias_total: inconsistenciasTotal,
+      tiene_advertencias: advertencias.length > 0 || inconsistenciasTotal > 0,
+    });
+
+    // 5) Guardar resumen diario ya calculado
+    await guardarResumenes(periodo, resumenes);
+
+    // 6) Resumen de carga para el usuario
+    const fechas = filas.map((f) => f.fecha).sort();
+
+    statusEl.textContent = `Carga exitosa: ${periodo}.`;
+    statusEl.classList.add("ok");
+
+    resumenEl.classList.remove("hidden");
+    resumenEl.innerHTML = `
+      <div class="ur-item"><span>Archivo</span><strong>${archivoSeleccionado.name}</strong></div>
+      <div class="ur-item"><span>Filas procesadas</span><strong>${filas.length}</strong></div>
+      <div class="ur-item"><span>Colaboradores detectados</span><strong>${empleadosUnicos.length}</strong></div>
+      <div class="ur-item"><span>Fecha inicial</span><strong>${fechaLegible(fechas[0])}</strong></div>
+      <div class="ur-item"><span>Fecha final</span><strong>${fechaLegible(fechas[fechas.length - 1])}</strong></div>
+      <div class="ur-item"><span>Registros válidos</span><strong>${meta.filasValidas} / ${meta.filasTotalesHoja}</strong></div>
+      <div class="ur-item"><span>Inconsistencias detectadas</span><strong>${inconsistenciasTotal}</strong></div>
+      ${advertencias.length ? `<div class="ur-warn">⚠ ${advertencias.join(" · ")}</div>` : ""}
+    `;
+
+    await refrescarPeriodosYVista(periodo);
+  } catch (err) {
+    statusEl.textContent = "Error: " + err.message;
+    statusEl.classList.add("error");
+  } finally {
+    spinnerEl.classList.add("hidden");
+  }
+});
+
+async function guardarResumenes(periodo, resumenes) {
+  await dbDeleteByIndex("asistencia_resumen_diario", "periodo", periodo);
+  await dbPutMany("asistencia_resumen_diario", resumenes);
+}
+
+// ---------------------------------------------------------------------------
+// INGESTA DEL CATÁLOGO DE RUTAS ASIGNADAS (archivo aparte, no cambia mes a mes)
+// ---------------------------------------------------------------------------
+let archivoRutasSeleccionado = null;
+
+document.getElementById("fileInputRutas").addEventListener("change", (e) => {
+  archivoRutasSeleccionado = e.target.files[0] || null;
+  document.getElementById("procesarRutasBtn").disabled = !archivoRutasSeleccionado;
+  document.getElementById("rutasResumen").classList.add("hidden");
+});
+
+document.getElementById("procesarRutasBtn").addEventListener("click", async () => {
+  if (!archivoRutasSeleccionado) return;
+  const statusEl = document.getElementById("rutasStatus");
+  const resumenEl = document.getElementById("rutasResumen");
+  statusEl.textContent = "Leyendo archivo de rutas...";
+  statusEl.className = "status-msg";
+  resumenEl.classList.add("hidden");
+
+  try {
+    const arrayBuffer = await archivoRutasSeleccionado.arrayBuffer();
+    const { asignaciones, meta } = leerRutasAsignadas(arrayBuffer);
+    await guardarAsignacionesYRecalcular(asignaciones, meta, archivoRutasSeleccionado.name, resumenEl);
+    statusEl.textContent = "Rutas cargadas correctamente.";
+    statusEl.classList.add("ok");
+  } catch (err) {
+    statusEl.textContent = "Error: " + err.message;
+    statusEl.classList.add("error");
+  }
+});
+
+// Lógica compartida entre "cargar archivo manual" y "sincronizar en vivo":
+// guarda el catálogo de rutas en IndexedDB y recalcula todo el histórico.
+async function guardarAsignacionesYRecalcular(asignaciones, meta, nombreOrigen, resumenEl) {
+  if (!asignaciones.length) {
+    throw new Error("No se encontraron filas válidas (revisa las columnas de Persona y Punto de venta).");
+  }
+
+  await dbClearStore("rutas_asignadas");
+  await dbPutMany("rutas_asignadas", asignaciones);
+
+  const personasConDia = new Set(asignaciones.filter((a) => a.dias.length).map((a) => a.nombre_normalizado)).size;
+
+  if (resumenEl) {
+    resumenEl.classList.remove("hidden");
+    resumenEl.innerHTML = `
+      <div class="ur-item"><span>Origen</span><strong>${nombreOrigen}</strong></div>
+      <div class="ur-item"><span>Filas procesadas</span><strong>${meta.filasValidas} / ${meta.filasTotalesHoja}</strong></div>
+      <div class="ur-item"><span>Personas con ruta por día</span><strong>${personasConDia}</strong></div>
+      <div class="ur-item"><span>Filas sin día (no se evalúan)</span><strong>${meta.filasSinDia}</strong></div>
+    `;
+  }
+
+  // Recalcular todo el histórico ya cargado con el nuevo catálogo de rutas
+  await recalcularTodoElHistorico();
+  const dashboardYaVisible = !document.getElementById("dashboardContent").classList.contains("hidden");
+  if (dashboardYaVisible) await refrescarPeriodosYVista();
+}
+
+// ---------------------------------------------------------------------------
+// SINCRONIZACIÓN EN VIVO CON GOOGLE SHEETS
+// ---------------------------------------------------------------------------
+// La URL debe ser el enlace de exportación CSV de una hoja PUBLICADA de
+// Google Sheets (Archivo → Compartir → Publicar en la web → elegir la hoja
+// específica → formato CSV → copiar enlace). Google sirve ese endpoint con
+// cabeceras CORS abiertas, así que se puede leer directo desde el navegador
+// sin backend propio.
+document.getElementById("rutasSheetUrl").addEventListener("change", async (e) => {
+  await dbPutMany("configuracion", [{ clave: "rutas_sheet_url", valor: e.target.value.trim() }]);
+});
+document.getElementById("rutasAutoSync").addEventListener("change", async (e) => {
+  await dbPutMany("configuracion", [{ clave: "rutas_auto_sync", valor: e.target.checked ? "1" : "0" }]);
+});
+
+async function poblarPanelSincronizacionRutas() {
+  const filas = await dbGetAll("configuracion");
+  const cfg = {};
+  filas.forEach((row) => (cfg[row.clave] = row.valor));
+  document.getElementById("rutasSheetUrl").value = cfg.rutas_sheet_url || "";
+  document.getElementById("rutasAutoSync").checked = cfg.rutas_auto_sync === "1";
+  if (cfg.rutas_ultima_sincronizacion) {
+    const fecha = new Date(cfg.rutas_ultima_sincronizacion);
+    document.getElementById("rutasSyncInfo").textContent =
+      `Última sincronización: ${fecha.toLocaleDateString("es-ES")} ${fecha.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`;
+  }
+}
+
+/**
+ * Descarga la hoja de rutas publicada en Google Sheets (CSV) y actualiza el
+ * catálogo local. Se usa tanto para el botón "Sincronizar ahora" como para
+ * la sincronización automática al procesar un Excel de marcaciones.
+ * @param {boolean} silencioso - si es true, no interrumpe con errores
+ *   visibles (usado en la sincronización automática, best-effort).
+ */
+async function sincronizarRutasDesdeGoogleSheets(silencioso = false) {
+  const url = document.getElementById("rutasSheetUrl").value.trim();
+  if (!url) {
+    if (!silencioso) throw new Error("Pegá primero el enlace de Google Sheets (CSV).");
+    return false;
+  }
+
+  const statusEl = document.getElementById("rutasSyncStatus");
+  const resumenEl = document.getElementById("rutasResumen");
+  if (!silencioso) {
+    statusEl.textContent = "Descargando desde Google Sheets...";
+    statusEl.className = "status-msg";
+  }
+
+  try {
+    const respuesta = await fetch(url, { cache: "no-store" });
+    if (!respuesta.ok) {
+      throw new Error(
+        `Google Sheets respondió con error ${respuesta.status}. Verificá que la hoja esté publicada (Archivo → Compartir → Publicar en la web).`
+      );
+    }
+    const textoCSV = await respuesta.text();
+    const { asignaciones, meta } = leerRutasAsignadasDesdeCSV(textoCSV);
+    await guardarAsignacionesYRecalcular(asignaciones, meta, "Google Sheets (sincronización en vivo)", resumenEl);
+
+    const ahora = new Date().toISOString();
+    await dbPutMany("configuracion", [{ clave: "rutas_ultima_sincronizacion", valor: ahora }]);
+    document.getElementById("rutasSyncInfo").textContent =
+      `Última sincronización: ${new Date(ahora).toLocaleDateString("es-ES")} ${new Date(ahora).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`;
+
+    if (!silencioso) {
+      statusEl.textContent = "Sincronizado correctamente.";
+      statusEl.classList.add("ok");
+    }
+    return true;
+  } catch (err) {
+    // Un fetch() a un dominio que bloquea CORS falla con un TypeError
+    // genérico ("Failed to fetch"), sin detalle — se aclara para que el
+    // usuario sepa que probablemente falta publicar la hoja correctamente.
+    const mensaje =
+      err.message === "Failed to fetch"
+        ? "No se pudo conectar con Google Sheets. Verificá tu conexión a internet y que la hoja esté publicada como CSV (no solo compartida)."
+        : err.message;
+    if (!silencioso) {
+      statusEl.textContent = "Error: " + mensaje;
+      statusEl.classList.add("error");
+    } else {
+      console.warn("Sincronización automática de rutas falló:", mensaje);
+    }
+    return false;
+  }
+}
+
+document.getElementById("sincronizarRutasBtn").addEventListener("click", () => sincronizarRutasDesdeGoogleSheets(false));
+
+// ---------------------------------------------------------------------------
+// SELECTOR DE PERÍODO
+// ---------------------------------------------------------------------------
+async function cargarPeriodosDisponibles() {
+  const data = await dbGetAll("periodos_cargados");
+  periodosDisponibles = data.sort((a, b) => (a.periodo < b.periodo ? 1 : -1));
+  return periodosDisponibles;
+}
+
+function poblarSelectoresPeriodo() {
+  const periodoSelect = document.getElementById("periodoSelect");
+  const periodoMulti = document.getElementById("periodoMulti");
+  periodoSelect.innerHTML = "";
+  periodoMulti.innerHTML = "";
+  periodosDisponibles.forEach(({ periodo }) => {
+    const opt1 = document.createElement("option");
+    opt1.value = periodo;
+    opt1.textContent = periodo;
+    periodoSelect.appendChild(opt1);
+
+    const opt2 = document.createElement("option");
+    opt2.value = periodo;
+    opt2.textContent = periodo;
+    periodoMulti.appendChild(opt2);
+  });
+  if (periodosDisponibles.length) {
+    periodoMulti.querySelectorAll("option")[0].selected = true;
+    if (periodosDisponibles.length > 1) periodoMulti.querySelectorAll("option")[1].selected = true;
+  }
+}
+
+function obtenerModoVista() {
+  return document.querySelector('input[name="modoVista"]:checked').value;
+}
+
+function obtenerPeriodosSeleccionados() {
+  const modo = obtenerModoVista();
+  if (!periodosDisponibles.length) return [];
+  if (modo === "actual") return [periodosDisponibles[0].periodo];
+  if (modo === "especifico") return [document.getElementById("periodoSelect").value];
+  return [...document.getElementById("periodoMulti").selectedOptions].map((o) => o.value);
+}
+
+document.getElementById("modoVistaGroup").addEventListener("change", () => {
+  const modo = obtenerModoVista();
+  document.getElementById("periodoSelect").classList.toggle("hidden", modo !== "especifico");
+  document.getElementById("periodoMultiWrap").classList.toggle("hidden", modo !== "comparativa");
+  renderizarVistaActual();
+});
+document.getElementById("periodoSelect").addEventListener("change", renderizarVistaActual);
+document.getElementById("periodoMulti").addEventListener("change", renderizarVistaActual);
+
+// ---------------------------------------------------------------------------
+// CARGA DE DATOS DE RESUMEN (con nombre del empleado embebido)
+// ---------------------------------------------------------------------------
+async function obtenerResumenDf(periodos) {
+  if (!periodos.length) return [];
+  const filas = await dbGetByIndex("asistencia_resumen_diario", "periodo", periodos);
+  const empleados = await dbGetAll("empleados");
+  const nombresPorId = new Map(empleados.map((e) => [e.id_empleado, e.nombre]));
+  return filas
+    .map((r) => ({ ...r, nombre: nombresPorId.get(r.id_empleado) || r.id_empleado }))
+    .sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0));
+}
+
+async function obtenerMarcacionesDf(periodo) {
+  const filas = await dbGetByIndex("marcaciones_detalle", "periodo", periodo);
+  const empleados = await dbGetAll("empleados");
+  const nombresPorId = new Map(empleados.map((e) => [e.id_empleado, e.nombre]));
+  return filas.map((r) => ({ ...r, nombre: nombresPorId.get(r.id_empleado) || r.id_empleado }));
+}
+
+// ---------------------------------------------------------------------------
+// ORQUESTACIÓN GENERAL DE REFRESCO
+// ---------------------------------------------------------------------------
+// IMPORTANTE: al abrir la pestaña, el dashboard NUNCA se muestra automático
+// aunque ya existan datos guardados en este navegador. Solo aparece cuando:
+//   a) se procesa un Excel con éxito, o
+//   b) el usuario cambia explícitamente el período (radio / selector), o
+//   c) el usuario pulsa "Ver historial guardado" en la pantalla vacía.
+// Esto evita que alguien abra la pestaña y vea de entrada datos de una
+// carga anterior sin haber pedido verlos.
+async function refrescarListaDePeriodos() {
+  await cargarPeriodosDisponibles();
+  poblarSelectoresPeriodo();
+  actualizarEmptyState();
+  renderHistorialProcesos();
+}
+
+function actualizarEmptyState() {
+  const textoEl = document.getElementById("emptyStateTexto");
+  const botonEl = document.getElementById("verHistorialBtn");
+  if (periodosDisponibles.length) {
+    textoEl.innerHTML =
+      "Ya tienes datos guardados en este navegador de cargas anteriores. Sube un Excel nuevo, elige un período en <strong>03 — Período</strong>, o pulsa el botón para verlos.";
+    botonEl.classList.remove("hidden");
+  } else {
+    textoEl.innerHTML = "Carga tu primer Excel mensual desde <strong>01 — Cargar datos</strong> para empezar.";
+    botonEl.classList.add("hidden");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HISTORIAL DE PROCESOS (barra lateral) — usa exclusivamente los períodos
+// realmente guardados en IndexedDB (periodos_cargados). No hay datos de
+// ejemplo/fijos: si no hay cargas, la lista queda vacía con un mensaje.
+// ---------------------------------------------------------------------------
+function renderHistorialProcesos() {
+  const cont = document.getElementById("historialProcesos");
+  if (!cont) return;
+  if (!periodosDisponibles.length) {
+    cont.innerHTML = `<p class="hp-vacio muted small">Sin procesos guardados todavía.</p>`;
+    return;
+  }
+  const ordenados = [...periodosDisponibles].sort((a, b) => (a.fecha_carga < b.fecha_carga ? 1 : -1));
+  cont.innerHTML = ordenados
+    .slice(0, 6)
+    .map((p) => {
+      const fecha = p.fecha_carga ? new Date(p.fecha_carga) : null;
+      const fechaTexto = fecha
+        ? `${fecha.toLocaleDateString("es-ES")} ${fecha.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`
+        : "—";
+      const conAdvertencias = !!p.tiene_advertencias;
+      return `
+      <button type="button" class="hp-item" data-periodo="${p.periodo}" title="Ver ${nombreMes(p.periodo)}">
+        <span class="hp-dot ${conAdvertencias ? "hp-dot-amarillo" : "hp-dot-verde"}"></span>
+        <span class="hp-texto">
+          <span class="hp-estado">${conAdvertencias ? "Con advertencias" : "Proceso completado"}</span>
+          <span class="hp-fecha mono">${fechaTexto}</span>
+        </span>
+        <span class="hp-flecha">›</span>
+      </button>`;
+    })
+    .join("");
+
+  cont.querySelectorAll(".hp-item").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelector('input[name="modoVista"][value="especifico"]').checked = true;
+      document.getElementById("periodoSelect").classList.remove("hidden");
+      document.getElementById("periodoMultiWrap").classList.add("hidden");
+      document.getElementById("periodoSelect").value = btn.dataset.periodo;
+      mostrarDashboard();
+    });
+  });
+}
+
+document.getElementById("actualizarHistorialBtn")?.addEventListener("click", refrescarListaDePeriodos);
+
+document.getElementById("verHistorialBtn").addEventListener("click", () => {
+  mostrarDashboard();
+});
+
+async function refrescarPeriodosYVista(periodoAEnfocar) {
+  await cargarPeriodosDisponibles();
+  poblarSelectoresPeriodo();
+  renderHistorialProcesos();
+  if (periodoAEnfocar) document.getElementById("periodoSelect").value = periodoAEnfocar;
+  await mostrarDashboard();
+}
+
+async function mostrarDashboard() {
+  if (!periodosDisponibles.length) {
+    document.getElementById("emptyState").classList.remove("hidden");
+    document.getElementById("dashboardContent").classList.add("hidden");
+    return;
+  }
+  document.getElementById("emptyState").classList.add("hidden");
+  document.getElementById("dashboardContent").classList.remove("hidden");
+
+  const periodos = obtenerPeriodosSeleccionados();
+  cacheResumen = await obtenerResumenDf(periodos);
+  poblarFiltrosDinamicos(cacheResumen);
+  aplicarFiltrosYRenderizar();
+}
+
+async function renderizarVistaActual() {
+  await mostrarDashboard();
+}
+
+function obtenerPdvsDeRegistro(r) {
+  if (r.pdvs_secuencia && r.pdvs_secuencia.length) return r.pdvs_secuencia;
+  if (r.lista_pdvs) return r.lista_pdvs.split("; ");
+  return [];
+}
+
+function poblarFiltrosDinamicos(df) {
+  const empleados = [...new Set(df.map((r) => r.nombre))].sort();
+  const estados = [...new Set(df.map((r) => r.clasificacion_puntualidad))].sort();
+  const pdvs = [...new Set(df.flatMap(obtenerPdvsDeRegistro))].sort();
+  msEmpleado.setOpciones(empleados);
+  msEstado.setOpciones(estados);
+  msPdv.setOpciones(pdvs);
+
+  if (df.length) {
+    const fechas = df.map((r) => r.fecha).sort();
+    if (!document.getElementById("filtroFechaDesde").value) document.getElementById("filtroFechaDesde").value = fechas[0];
+    if (!document.getElementById("filtroFechaHasta").value) document.getElementById("filtroFechaHasta").value = fechas[fechas.length - 1];
+    document.getElementById("fechaPdf").value = fechas[fechas.length - 1];
+  }
+}
+
+document.getElementById("buscarColaboradorInput").addEventListener("input", () => {
+  paginaActual = 1;
+  aplicarFiltrosYRenderizar();
+});
+
+["filtroFechaDesde", "filtroFechaHasta"].forEach((id) => {
+  document.getElementById(id).addEventListener("change", () => { paginaActual = 1; aplicarFiltrosYRenderizar(); });
+});
+
+document.getElementById("limpiarFiltrosBtn").addEventListener("click", () => {
+  msEmpleado.limpiar();
+  msEstado.limpiar();
+  msPdv.limpiar();
+  document.getElementById("buscarColaboradorInput").value = "";
+  filtroCategoriaInconsistencia = null;
+  paginaActual = 1;
+  if (cacheResumen.length) {
+    const fechas = cacheResumen.map((r) => r.fecha).sort();
+    document.getElementById("filtroFechaDesde").value = fechas[0];
+    document.getElementById("filtroFechaHasta").value = fechas[fechas.length - 1];
+  }
+  aplicarFiltrosYRenderizar();
+});
+
+function actualizarPeriodoAnalizadoLabel(df) {
+  const el = document.getElementById("periodoAnalizadoLabel");
+  const periodos = obtenerPeriodosSeleccionados();
+  const periodosTexto = periodos.map(nombreMes).join(", ");
+  const desde = document.getElementById("filtroFechaDesde").value;
+  const hasta = document.getElementById("filtroFechaHasta").value;
+  const rango = desde && hasta ? ` · ${fechaLegible(desde)} – ${fechaLegible(hasta)}` : "";
+  el.textContent = `Período analizado: ${periodosTexto || "—"}${rango} · ${df.length} registro(s)`;
+
+  const chip = document.getElementById("headerResumenChip");
+  if (chip) {
+    chip.textContent = periodos.length ? `${periodosTexto} · ${df.length.toLocaleString("es-ES")} registros` : "Sin datos cargados";
+  }
+}
+
+// Categoriza cada mensaje de inconsistencia (generado en businessLogic.js)
+// para la franja "Atención requerida". No hay una segunda regla de negocio
+// acá: solo se interpretan los textos que YA produce calcularResumen().
+function categorizarInconsistencia(msg) {
+  if (msg.startsWith("Falta marcación de entrada")) return "sin_entrada";
+  if (msg.startsWith("Falta marcación de salida")) return "sin_salida";
+  if (msg.startsWith("Descanso excede")) return "descanso_excedido";
+  if (msg.startsWith("Entrada posterior")) return "entrada_post_salida";
+  if (msg.startsWith("Tiempo total del día superior")) return "tiempo_imposible";
+  if (msg.startsWith("Ruta incompleta")) return "ruta_incompleta";
+  return "otras";
+}
+const CATEGORIAS_ATENCION = [
+  { key: "sin_entrada", label: "sin entrada" },
+  { key: "sin_salida", label: "marcación abierta" },
+  { key: "descanso_excedido", label: "descansos excedidos" },
+  { key: "entrada_post_salida", label: "entrada posterior a la salida" },
+  { key: "tiempo_imposible", label: "tiempo > 24 h" },
+  { key: "ruta_incompleta", label: "rutas incompletas" },
+  { key: "otras", label: "otras inconsistencias" },
+];
+
+function aplicarFiltrosYRenderizar() {
+  const empSel = msEmpleado.getSeleccionados();
+  const estSel = msEstado.getSeleccionados();
+  const pdvSel = msPdv.getSeleccionados();
+  const desde = document.getElementById("filtroFechaDesde").value;
+  const hasta = document.getElementById("filtroFechaHasta").value;
+  const textoBusqueda = document.getElementById("buscarColaboradorInput").value.trim().toLowerCase();
+
+  // df: dataset con TODOS los filtros excepto la categoría de "Atención
+  // requerida" — es el que alimenta KPIs, gráficos y los conteos de la
+  // propia franja de atención (para que el conteo no se reduzca a sí mismo
+  // al hacer clic en una categoría).
+  let df = cacheResumen;
+  if (empSel.length) df = df.filter((r) => empSel.includes(r.nombre));
+  if (estSel.length) df = df.filter((r) => estSel.includes(r.clasificacion_puntualidad));
+  if (pdvSel.length) df = df.filter((r) => obtenerPdvsDeRegistro(r).some((p) => pdvSel.includes(p)));
+  if (desde) df = df.filter((r) => r.fecha >= desde);
+  if (hasta) df = df.filter((r) => r.fecha <= hasta);
+  if (textoBusqueda) df = df.filter((r) => (r.nombre || "").toLowerCase().includes(textoBusqueda));
+
+  actualizarPeriodoAnalizadoLabel(df);
+
+  const sinResultadosEl = document.getElementById("sinResultados");
+  const contenidoEl = document.getElementById("contenidoFiltrado");
+  if (!df.length) {
+    sinResultadosEl.classList.remove("hidden");
+    contenidoEl.classList.add("hidden");
+    dfFiltradoActual = df;
+    return;
+  }
+  sinResultadosEl.classList.add("hidden");
+  contenidoEl.classList.remove("hidden");
+
+  renderKPIs(df);
+  renderGraficos(df);
+  renderAtencionRequerida(df);
+
+  // dfTabla: el mismo df, más la categoría de inconsistencia si hay una
+  // activa (clic en un chip de "Atención requerida"). La exportación a Excel
+  // usa este mismo dataset, para que Excel y tabla siempre coincidan.
+  let dfTabla = df;
+  if (filtroCategoriaInconsistencia) {
+    dfTabla = dfTabla.filter((r) =>
+      (r.inconsistencias || []).some((m) => categorizarInconsistencia(m) === filtroCategoriaInconsistencia)
+    );
+  }
+  dfFiltradoActual = dfTabla;
+  ultimoDfTabla = dfTabla;
+  if (paginaActual < 1) paginaActual = 1;
+  renderTabla(dfTabla);
+}
+
+function renderAtencionRequerida(df) {
+  const cont = document.getElementById("atencionRequerida");
+  if (!cont) return;
+  const conteoPorCategoria = {};
+  CATEGORIAS_ATENCION.forEach((c) => (conteoPorCategoria[c.key] = 0));
+  let totalUnico = 0;
+  df.forEach((r) => {
+    if (!r.tiene_inconsistencia) return;
+    totalUnico += 1;
+    const categoriasDeEstaFila = new Set((r.inconsistencias || []).map(categorizarInconsistencia));
+    categoriasDeEstaFila.forEach((cat) => {
+      conteoPorCategoria[cat] = (conteoPorCategoria[cat] || 0) + 1;
+    });
+  });
+
+  if (totalUnico === 0) {
+    cont.className = "atencion-requerida atencion-ok";
+    cont.innerHTML = `<span class="atencion-check" aria-hidden="true">✓</span> Sin casos críticos en el período analizado`;
+    filtroCategoriaInconsistencia = null;
+    return;
+  }
+
+  cont.className = "atencion-requerida atencion-alerta";
+  const chips = CATEGORIAS_ATENCION.filter((c) => conteoPorCategoria[c.key] > 0)
+    .map(
+      (c) => `
+      <button type="button" class="atencion-chip${filtroCategoriaInconsistencia === c.key ? " activo" : ""}" data-cat="${c.key}">
+        <strong>${conteoPorCategoria[c.key]}</strong> ${c.label}
+      </button>`
+    )
+    .join("");
+
+  cont.innerHTML = `
+    <div class="atencion-titulo"><span aria-hidden="true">⚠</span> ATENCIÓN REQUERIDA <span class="atencion-total">· ${totalUnico} caso(s)</span></div>
+    <div class="atencion-chips">
+      ${chips}
+      ${filtroCategoriaInconsistencia ? `<button type="button" class="atencion-chip atencion-quitar" id="atencionQuitarFiltro">Quitar filtro ✕</button>` : ""}
+    </div>
+  `;
+
+  cont.querySelectorAll(".atencion-chip[data-cat]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const cat = btn.dataset.cat;
+      filtroCategoriaInconsistencia = filtroCategoriaInconsistencia === cat ? null : cat;
+      paginaActual = 1;
+      aplicarFiltrosYRenderizar();
+      const toolbarEl = document.getElementById("auditoriaToolbar");
+      if (toolbarEl && typeof toolbarEl.scrollIntoView === "function") {
+        toolbarEl.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+  });
+  const btnQuitar = document.getElementById("atencionQuitarFiltro");
+  if (btnQuitar) {
+    btnQuitar.addEventListener("click", () => {
+      filtroCategoriaInconsistencia = null;
+      aplicarFiltrosYRenderizar();
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// KPIs — cada tarjeta separa claramente cantidad / minutos / porcentaje
+// ---------------------------------------------------------------------------
+function renderKPIs(df) {
+  const totalColaboradores = new Set(df.map((r) => r.id_empleado)).size;
+  const totalDias = df.length;
+  const puntuales = df.filter((r) => r.clasificacion_puntualidad === ESTADOS.PUNTUAL).length;
+  const pctPuntualidad = totalDias ? ((puntuales / totalDias) * 100).toFixed(1) : "0.0";
+
+  const filasTardanza = df.filter((r) => esTardanza(r.clasificacion_puntualidad));
+  const cantidadTardanzas = filasTardanza.length;
+
+  const filasConHoras = df.filter((r) => r.minutos_efectivos !== null && r.minutos_efectivos !== undefined);
+  const promMinutosEfectivos = filasConHoras.length
+    ? filasConHoras.reduce((acc, r) => acc + r.minutos_efectivos, 0) / filasConHoras.length
+    : null;
+  const cantidadJornadaIncompleta = filasConHoras.filter((r) => !r.cumplio_jornada).length;
+
+  const ICONOS = {
+    personas: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/><circle cx="17" cy="9" r="2.6"/><path d="M15.8 14.2c2.8.4 5.2 2.4 5.2 5.8"/></svg>',
+    check: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9.2"/><path d="m8 12.5 2.6 2.6L16.5 9"/></svg>',
+    alerta: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9.2"/><path d="M12 7v6"/><circle cx="12" cy="16.3" r="0.9" fill="currentColor" stroke="none"/></svg>',
+    reloj: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9.2"/><path d="M12 7v5.2l3.6 2.1"/></svg>',
+    salida: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 4H5v16h5"/><path d="M14 8l5 4-5 4"/><path d="M19 12H9"/></svg>',
+  };
+
+  const cfg2 = document.getElementById("cfgHorasJornada")?.value || "8";
+
+  const kpis = [
+    {
+      titulo: "Colaboradores",
+      valor: totalColaboradores,
+      unidad: "",
+      icono: ICONOS.personas,
+      claseIcono: "kpi-icono-neutro",
+      desc: "Colaboradores distintos en el período filtrado.",
+      tooltip: "Cantidad de colaboradores diferentes con al menos un registro dentro de los filtros aplicados.",
+    },
+    {
+      titulo: "Puntualidad",
+      valor: `${pctPuntualidad}%`,
+      unidad: "",
+      icono: ICONOS.check,
+      claseIcono: "kpi-icono-verde",
+      desc: "Entradas hasta las 08:10.",
+      tooltip: "Porcentaje de entradas registradas hasta las 08:10 inclusive, considerando los filtros aplicados. Es un porcentaje, no una cantidad.",
+    },
+    {
+      titulo: "Cantidad de tardanzas",
+      valor: cantidadTardanzas,
+      unidad: "eventos",
+      icono: ICONOS.alerta,
+      claseIcono: "kpi-icono-rojo",
+      desc: "Llegadas desde las 08:11.",
+      tooltip: "Número de entradas registradas desde las 08:11 (Tardanza Leve o Tardanza a Supervisar). No representa minutos, representa eventos.",
+    },
+    {
+      titulo: "Horas efectivas",
+      valor: promMinutosEfectivos === null ? "—" : formatHorasTrabajadas(promMinutosEfectivos),
+      unidad: promMinutosEfectivos === null ? "" : "promedio/día",
+      icono: ICONOS.reloj,
+      claseIcono: "kpi-icono-ambar",
+      desc: `Entrada a salida, sin contar el descanso. Jornada obligatoria: ${cfg2} h.`,
+      tooltip: "Promedio de horas efectivas trabajadas por día: diferencia entre el primer check-in y el último check-out, descontando el descanso. Solo considera días con entrada y salida completas (sin marcación abierta).",
+    },
+    {
+      titulo: "Jornada incompleta",
+      valor: cantidadJornadaIncompleta,
+      unidad: "días",
+      icono: ICONOS.salida,
+      claseIcono: cantidadJornadaIncompleta > 0 ? "kpi-icono-rojo" : "kpi-icono-verde",
+      desc: `Días con menos de ${cfg2} h efectivas trabajadas.`,
+      tooltip: "Cantidad de días en los que las horas efectivas trabajadas (entrada a salida, sin contar el descanso) fueron menores a la jornada obligatoria configurada.",
+    },
+  ];
+
+  const row = document.getElementById("kpiRow");
+  row.innerHTML = kpis
+    .map(
+      (k) => `
+    <div class="kpi-stub">
+      <div class="kpi-top">
+        <div class="kpi-label">${k.titulo}</div>
+        <span class="kpi-icono ${k.claseIcono}" aria-hidden="true">${k.icono}</span>
+      </div>
+      <div class="kpi-value${String(k.valor).length > 8 ? " valor-largo" : ""}">${k.valor}${k.unidad ? ` <span class="kpi-unidad">${k.unidad}</span>` : ""}</div>
+      <div class="kpi-desc">${k.desc} <span class="info-icon" title="${k.tooltip}">ⓘ</span></div>
+    </div>`
+    )
+    .join("");
+}
+
+// ---------------------------------------------------------------------------
+// GRÁFICOS (Chart.js)
+// ---------------------------------------------------------------------------
+function destruirChart(nombre) {
+  if (charts[nombre]) {
+    charts[nombre].destroy();
+    charts[nombre] = null;
+  }
+}
+
+function renderGraficos(df) {
+  renderRanking(df);
+  renderMinutosTardanza(df);
+  renderEvolucion(df);
+  renderDistribucion(df);
+  renderTendencia();
+}
+
+const FUENTE_UI = "Arial, sans-serif";
+const FUENTE_MONO = "Arial, sans-serif";
+const COLOR_ESTADO = {
+  [ESTADOS.PUNTUAL]: "#3C8F63",
+  [ESTADOS.LEVE]: "#C98A2B",
+  [ESTADOS.SUPERVISAR]: "#B23B32",
+  [ESTADOS.SIN_ENTRADA]: "#8A8F98",
+};
+
+// Plugin propio (sin dependencias externas) para dibujar el valor al final
+// de cada barra horizontal — evita depender de chartjs-plugin-datalabels.
+const pluginValorAlFinal = {
+  id: "valorAlFinal",
+  afterDatasetsDraw(chart) {
+    const { ctx } = chart;
+    chart.data.datasets.forEach((dataset, di) => {
+      const meta = chart.getDatasetMeta(di);
+      meta.data.forEach((bar, i) => {
+        const valor = dataset.data[i];
+        if (valor === undefined || valor === null) return;
+        ctx.save();
+        ctx.font = "600 11px " + FUENTE_MONO;
+        ctx.fillStyle = "#171B22";
+        ctx.textBaseline = "middle";
+        if (chart.options.indexAxis === "y") {
+          ctx.textAlign = "left";
+          ctx.fillText(String(valor), bar.x + 6, bar.y);
+        } else {
+          ctx.textAlign = "center";
+          ctx.fillText(String(valor), bar.x, bar.y - 8);
+        }
+        ctx.restore();
+      });
+    });
+  },
+};
+
+function renderRanking(df) {
+  destruirChart("ranking");
+  const stats = new Map(); // nombre -> {total, leve, supervisar, minutos}
+  df.filter((r) => esTardanza(r.clasificacion_puntualidad)).forEach((r) => {
+    if (!stats.has(r.nombre)) stats.set(r.nombre, { total: 0, leve: 0, supervisar: 0, minutos: 0 });
+    const s = stats.get(r.nombre);
+    s.total += 1;
+    if (r.clasificacion_puntualidad === ESTADOS.LEVE) s.leve += 1;
+    if (r.clasificacion_puntualidad === ESTADOS.SUPERVISAR) s.supervisar += 1;
+    s.minutos += r.minutos_tardanza || 0;
+  });
+  const entradas = [...stats.entries()].sort((a, b) => b[1].total - a[1].total);
+  const ctx = document.getElementById("chartRanking");
+  const alturaPorBarra = 28;
+  ctx.parentElement.style.height = `${Math.max(220, entradas.length * alturaPorBarra + 60)}px`;
+
+  charts.ranking = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: entradas.map((e) => e[0]),
+      datasets: [{ label: "Cantidad de tardanzas", data: entradas.map((e) => e[1].total), backgroundColor: "#B23B32", borderRadius: 2, barThickness: 16 }],
+    },
+    plugins: [pluginValorAlFinal],
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: { right: 24 } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (item) => {
+              const s = entradas[item.dataIndex][1];
+              return [
+                `Cantidad de tardanzas: ${s.total}`,
+                `  Tardanza leve: ${s.leve}`,
+                `  Tardanza a supervisar: ${s.supervisar}`,
+                `Minutos acumulados: ${formatMinutos(s.minutos, { conEquivalencia: true })}`,
+              ];
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          title: { display: true, text: "Cantidad de tardanzas (número de eventos)", font: { family: FUENTE_UI, size: 10 } },
+          ticks: { font: { family: FUENTE_UI, size: 11 }, precision: 0, stepSize: 1 },
+          grid: { color: "#E7E5DC" },
+        },
+        y: { ticks: { font: { family: FUENTE_UI, size: 11 }, autoSkip: false }, grid: { display: false } },
+      },
+    },
+  });
+}
+
+function renderMinutosTardanza(df) {
+  destruirChart("minutosTardanza");
+  const stats = new Map(); // nombre -> {minutos, cantidad}
+  df.filter((r) => esTardanza(r.clasificacion_puntualidad)).forEach((r) => {
+    if (!stats.has(r.nombre)) stats.set(r.nombre, { minutos: 0, cantidad: 0 });
+    const s = stats.get(r.nombre);
+    s.minutos += r.minutos_tardanza || 0;
+    s.cantidad += 1;
+  });
+  const entradas = [...stats.entries()].sort((a, b) => b[1].minutos - a[1].minutos);
+  const ctx = document.getElementById("chartMinutosTardanza");
+  const alturaPorBarra = 28;
+  ctx.parentElement.style.height = `${Math.max(220, entradas.length * alturaPorBarra + 60)}px`;
+
+  charts.minutosTardanza = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: entradas.map((e) => e[0]),
+      datasets: [{ label: "Minutos acumulados", data: entradas.map((e) => e[1].minutos), backgroundColor: "#E1962E", borderRadius: 2, barThickness: 16 }],
+    },
+    plugins: [pluginValorAlFinal],
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: { right: 24 } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (item) => {
+              const s = entradas[item.dataIndex][1];
+              const promedio = s.cantidad ? Math.round(s.minutos / s.cantidad) : 0;
+              return [
+                `Minutos acumulados: ${formatMinutos(s.minutos, { conEquivalencia: true })}`,
+                `Cantidad de tardanzas: ${s.cantidad}`,
+                `Promedio por tardanza: ${formatMinutos(promedio)}`,
+              ];
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          title: { display: true, text: "Minutos", font: { family: FUENTE_UI, size: 10 } },
+          ticks: { font: { family: FUENTE_MONO, size: 10 } },
+          grid: { color: "#E7E5DC" },
+        },
+        y: { ticks: { font: { family: FUENTE_UI, size: 11 }, autoSkip: false }, grid: { display: false } },
+      },
+    },
+  });
+}
+
+function renderEvolucion(df) {
+  destruirChart("evolucion");
+  const porFechaEstado = new Map();
+  df.forEach((r) => {
+    if (!porFechaEstado.has(r.fecha)) porFechaEstado.set(r.fecha, {});
+    const obj = porFechaEstado.get(r.fecha);
+    obj[r.clasificacion_puntualidad] = (obj[r.clasificacion_puntualidad] || 0) + 1;
+  });
+  const fechas = [...porFechaEstado.keys()].sort();
+  const estados = [ESTADOS.PUNTUAL, ESTADOS.LEVE, ESTADOS.SUPERVISAR, ESTADOS.SIN_ENTRADA];
+
+  const ctx = document.getElementById("chartEvolucion");
+  charts.evolucion = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: fechas.map(fechaLegible),
+      datasets: estados.map((est) => ({
+        label: est,
+        data: fechas.map((f) => (porFechaEstado.get(f)[est] || 0)),
+        borderColor: COLOR_ESTADO[est],
+        backgroundColor: COLOR_ESTADO[est],
+        tension: 0.25,
+        pointRadius: 2,
+      })),
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { font: { family: FUENTE_UI, size: 10 }, boxWidth: 10 } },
+        tooltip: {
+          callbacks: {
+            afterBody: (items) => {
+              const total = items.reduce((acc, it) => acc + (it.parsed.y || 0), 0);
+              return `Total de registros del día: ${total}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { font: { family: FUENTE_MONO, size: 9 }, maxTicksLimit: 12, autoSkip: true },
+          grid: { display: false },
+        },
+        y: {
+          title: { display: true, text: "Cantidad de colaboradores", font: { family: FUENTE_UI, size: 10 } },
+          ticks: { font: { family: FUENTE_UI, size: 11 }, precision: 0, stepSize: 1 },
+          grid: { color: "#E7E5DC" },
+        },
+      },
+    },
+  });
+}
+
+function renderDistribucion(df) {
+  destruirChart("distribucion");
+  const totalPdv = df.reduce((acc, r) => acc + (r.minutos_pdv || 0), 0);
+  const totalTraslado = df.reduce((acc, r) => acc + (r.minutos_traslado || 0), 0);
+  const totalDescanso = df.reduce((acc, r) => acc + (r.minutos_descanso_total || 0), 0);
+  const totalGeneral = totalPdv + totalTraslado + totalDescanso;
+
+  const datos = [
+    { label: "PDV", minutos: totalPdv, color: "#171B22" },
+    { label: "Traslado", minutos: totalTraslado, color: "#E1962E" },
+    { label: "Descanso", minutos: totalDescanso, color: "#B7B2A3" },
+  ];
+
+  const pluginTotalCentro = {
+    id: "totalCentro",
+    afterDraw(chart) {
+      const { ctx, chartArea } = chart;
+      if (!chartArea) return;
+      const cx = (chartArea.left + chartArea.right) / 2;
+      const cy = (chartArea.top + chartArea.bottom) / 2;
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "600 15px " + FUENTE_MONO;
+      ctx.fillStyle = "#171B22";
+      ctx.fillText(`${totalGeneral} min`, cx, cy - 8);
+      ctx.font = "500 10px " + FUENTE_UI;
+      ctx.fillStyle = "#565F6D";
+      ctx.fillText("total registrado", cx, cy + 10);
+      ctx.restore();
+    },
+  };
+
+  const ctx = document.getElementById("chartDistribucion");
+  charts.distribucion = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: datos.map((d) => d.label),
+      datasets: [{ data: datos.map((d) => d.minutos), backgroundColor: datos.map((d) => d.color) }],
+    },
+    plugins: [pluginTotalCentro],
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { font: { family: FUENTE_UI, size: 11 }, boxWidth: 10 } },
+        tooltip: {
+          callbacks: {
+            label: (item) => {
+              const d = datos[item.dataIndex];
+              const pct = totalGeneral ? ((d.minutos / totalGeneral) * 100).toFixed(0) : "0";
+              return [
+                `${d.label}`,
+                `${formatMinutos(d.minutos, { conEquivalencia: true })}`,
+                `${pct}% del tiempo registrado`,
+              ];
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const totalEl = document.getElementById("distribucionTotal");
+  if (totalEl) {
+    const horas = Math.floor(totalGeneral / 60);
+    const resto = totalGeneral % 60;
+    totalEl.textContent = totalGeneral
+      ? `Total analizado: ${totalGeneral} min (${horas} h ${resto} min) · distribución calculada sobre el total de minutos registrados`
+      : "Sin minutos registrados en el período filtrado.";
+  }
+}
+
+async function renderTendencia() {
+  destruirChart("tendencia");
+  const ctx = document.getElementById("chartTendencia");
+  const wrap = ctx.closest(".chart-panel");
+  if (periodosDisponibles.length < 2) {
+    wrap.querySelector(".chart-empty")?.classList.remove("hidden");
+    ctx.classList.add("hidden");
+    return;
+  }
+  wrap.querySelector(".chart-empty")?.classList.add("hidden");
+  ctx.classList.remove("hidden");
+
+  const todosPeriodos = periodosDisponibles.map((p) => p.periodo);
+  const dfHist = await obtenerResumenDf(todosPeriodos);
+  const porPeriodo = new Map();
+  dfHist.forEach((r) => {
+    if (!porPeriodo.has(r.periodo)) porPeriodo.set(r.periodo, { total: 0, puntuales: 0, tardanzas: 0, minutos: 0 });
+    const acc = porPeriodo.get(r.periodo);
+    acc.total += 1;
+    if (r.clasificacion_puntualidad === ESTADOS.PUNTUAL) acc.puntuales += 1;
+    if (esTardanza(r.clasificacion_puntualidad)) {
+      acc.tardanzas += 1;
+      acc.minutos += r.minutos_tardanza || 0;
+    }
+  });
+  const periodosOrdenados = [...porPeriodo.keys()].sort();
+
+  charts.tendencia = new Chart(ctx, {
+    data: {
+      labels: periodosOrdenados.map(nombreMes),
+      datasets: [
+        {
+          type: "line",
+          label: "% Puntualidad",
+          data: periodosOrdenados.map((p) => ((porPeriodo.get(p).puntuales / porPeriodo.get(p).total) * 100).toFixed(1)),
+          borderColor: "#171B22",
+          backgroundColor: "#171B22",
+          yAxisID: "y",
+        },
+        {
+          type: "bar",
+          label: "Cantidad de tardanzas",
+          data: periodosOrdenados.map((p) => porPeriodo.get(p).tardanzas),
+          backgroundColor: "rgba(225,150,46,0.55)",
+          yAxisID: "y1",
+          barThickness: 18,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { font: { family: FUENTE_UI, size: 10 }, boxWidth: 10 } },
+        tooltip: {
+          callbacks: {
+            afterBody: (items) => {
+              const p = periodosOrdenados[items[0].dataIndex];
+              const acc = porPeriodo.get(p);
+              return [`Minutos acumulados de tardanza: ${formatMinutos(acc.minutos, { conEquivalencia: true })}`];
+            },
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { font: { family: FUENTE_UI, size: 10 } }, grid: { display: false } },
+        y: {
+          type: "linear",
+          position: "left",
+          title: { display: true, text: "% Puntualidad", font: { family: FUENTE_UI, size: 9 } },
+          ticks: { font: { family: FUENTE_UI, size: 10 } },
+          grid: { color: "#E7E5DC" },
+        },
+        y1: {
+          type: "linear",
+          position: "right",
+          title: { display: true, text: "Cantidad de tardanzas", font: { family: FUENTE_UI, size: 9 } },
+          ticks: { font: { family: FUENTE_UI, size: 10 }, precision: 0 },
+          grid: { drawOnChartArea: false },
+        },
+      },
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// TABLA DE AUDITORÍA (con tira de ruta como firma visual)
+// ---------------------------------------------------------------------------
+function tagEstado(r) {
+  if (r.tiene_marcacion_abierta) return `<span class="tag tag-rojo">● Abierta</span>`;
+  const map = {
+    [ESTADOS.SUPERVISAR]: "tag-rojo",
+    [ESTADOS.LEVE]: "tag-ambar",
+    [ESTADOS.SIN_ENTRADA]: "tag-gris",
+    [ESTADOS.PUNTUAL]: "tag-verde",
+  };
+  const clase = map[r.clasificacion_puntualidad] || "tag-gris";
+  return `<span class="tag ${clase}">● ${r.clasificacion_puntualidad}</span>`;
+}
+
+// Abrevia un nombre de PDV a 3 letras mayúsculas (ej. "Farmacia Norte" -> "FAR")
+// para el modo compacto de la ruta visual, conservando el nombre completo en
+// el tooltip. Si el nombre tiene varias palabras, toma la primera.
+function abreviarPdv(nombre) {
+  const primera = String(nombre).trim().split(/\s+/)[0] || "";
+  return primera.slice(0, 3).toUpperCase();
+}
+
+function tiraDeRuta(r) {
+  const detalle = r.ruta_detalle && r.ruta_detalle.length
+    ? r.ruta_detalle
+    : (r.pdvs_secuencia && r.pdvs_secuencia.length
+        ? r.pdvs_secuencia.map((pdv) => ({ pdv, minutos: null }))
+        : (r.lista_pdvs ? r.lista_pdvs.split("; ").map((pdv) => ({ pdv, minutos: null })) : []));
+  if (!detalle.length) return `<span class="muted">Sin registro de ruta</span>`;
+  const pasos = detalle
+    .map((parada, i) => {
+      const tooltip = parada.minutos !== null ? `${parada.pdv} — ${formatMinutos(parada.minutos)}` : parada.pdv;
+      return `
+      <span class="ruta-parada" title="${tooltip}">
+        <span class="ruta-punto" aria-hidden="true"></span>
+        <span class="ruta-abrev">${abreviarPdv(parada.pdv)}</span>
+      </span>${i < detalle.length - 1 ? '<span class="ruta-flecha" aria-hidden="true">→</span>' : ""}`;
+    })
+    .join("");
+  return `<div class="ruta-strip">${pasos}<span class="ruta-count">${detalle.length}</span></div>`;
+}
+
+let limiteDescansoActual = 60; // se refresca en arrancarApp() y tras guardar configuración
+
+function celdaCobertura(r) {
+  if (r.ruta_cumplida === null || r.ruta_cumplida === undefined) return `<span class="muted">—</span>`;
+  const total = r.ruta_pdvs_esperados.length;
+  const visitadosCount = total - r.ruta_pdvs_faltantes.length;
+  if (r.ruta_cumplida) return `<span class="tag tag-verde">● ${visitadosCount}/${total}</span>`;
+  const tituloFaltantes = `Faltó visitar: ${r.ruta_pdvs_faltantes.join(", ")}`;
+  return `<span class="tag tag-rojo" title="${tituloFaltantes}">● ${visitadosCount}/${total}</span>`;
+}
+
+function renderTabla(df) {
+  const filasOrdenadas = [...df].sort((a, b) => (a.fecha + a.nombre).localeCompare(b.fecha + b.nombre));
+
+  const totalFilas = filasOrdenadas.length;
+  const totalPaginas = Math.max(1, Math.ceil(totalFilas / filasPorPagina));
+  if (paginaActual > totalPaginas) paginaActual = totalPaginas;
+  if (paginaActual < 1) paginaActual = 1;
+
+  const inicio = (paginaActual - 1) * filasPorPagina;
+  const filasPagina = filasOrdenadas.slice(inicio, inicio + filasPorPagina);
+
+  const tbody = document.querySelector("#tablaAuditoria tbody");
+  tbody.innerHTML = filasPagina
+    .map((r) => {
+      const inconsistenciaTitle = r.tiene_inconsistencia ? (r.inconsistencias || []).join("; ") : "";
+      return `
+    <tr class="${r.alerta_exceso_descanso ? "fila-exceso" : ""} ${r.tiene_inconsistencia ? "fila-inconsistente" : ""}">
+      <td class="td-nombre th-sticky">${r.nombre || "Sin datos"}${r.tiene_inconsistencia ? ` <span class="info-icon" title="${inconsistenciaTitle}">⚠</span>` : ""}</td>
+      <td class="mono">${fechaLegible(r.fecha)}</td>
+      <td class="mono">${r.primer_checkin || "—"}</td>
+      <td class="mono">${r.ultimo_checkout || (r.tiene_marcacion_abierta ? "Abierta" : "—")}</td>
+      <td>${tagEstado(r)}</td>
+      <td class="mono num">${formatMinutos(r.minutos_tardanza)}</td>
+      <td class="mono num">${formatDescanso(r.minutos_descanso_total, limiteDescansoActual)}</td>
+      <td class="mono num">${r.pdvs_unicos_visitados ?? 0}</td>
+      <td>${tiraDeRuta(r)}</td>
+      <td class="mono num">${formatHorasTrabajadas(r.minutos_efectivos)}</td>
+      <td>${r.minutos_efectivos === null ? `<span class="muted">—</span>` : r.cumplio_jornada ? `<span class="tag tag-verde">● Cumplida</span>` : `<span class="tag tag-ambar">● Incompleta</span>`}</td>
+      <td>${celdaCobertura(r)}</td>
+    </tr>`;
+    })
+    .join("");
+
+  renderPaginacion(totalFilas, totalPaginas, inicio);
+}
+
+function renderPaginacion(totalFilas, totalPaginas, inicio) {
+  const infoEl = document.getElementById("paginacionInfo");
+  const botonesEl = document.getElementById("paginacionBotones");
+  if (!infoEl || !botonesEl) return;
+
+  const desde = totalFilas === 0 ? 0 : inicio + 1;
+  const hasta = Math.min(inicio + filasPorPagina, totalFilas);
+  infoEl.textContent = `Mostrando ${desde} a ${hasta} de ${totalFilas} registro(s)`;
+
+  const paginas = [];
+  const ventana = 2;
+  for (let p = 1; p <= totalPaginas; p++) {
+    if (p === 1 || p === totalPaginas || Math.abs(p - paginaActual) <= ventana) paginas.push(p);
+    else if (paginas[paginas.length - 1] !== "…") paginas.push("…");
+  }
+
+  const botonesHtml = [
+    `<button type="button" class="pg-btn" data-pg="prev" ${paginaActual <= 1 ? "disabled" : ""} aria-label="Página anterior">«</button>`,
+    ...paginas.map((p) =>
+      p === "…"
+        ? `<span class="pg-elipsis">…</span>`
+        : `<button type="button" class="pg-btn${p === paginaActual ? " activo" : ""}" data-pg="${p}">${p}</button>`
+    ),
+    `<button type="button" class="pg-btn" data-pg="next" ${paginaActual >= totalPaginas ? "disabled" : ""} aria-label="Página siguiente">»</button>`,
+  ].join("");
+  botonesEl.innerHTML = botonesHtml;
+
+  botonesEl.querySelectorAll(".pg-btn[data-pg]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const dato = btn.dataset.pg;
+      if (dato === "prev") paginaActual = Math.max(1, paginaActual - 1);
+      else if (dato === "next") paginaActual = Math.min(totalPaginas, paginaActual + 1);
+      else paginaActual = parseInt(dato, 10);
+      renderTabla(ultimoDfTabla);
+    });
+  });
+}
+
+document.getElementById("filasPorPaginaSelect").addEventListener("change", (e) => {
+  filasPorPagina = parseInt(e.target.value, 10) || 15;
+  paginaActual = 1;
+  renderTabla(ultimoDfTabla);
+});
+
+// ---------------------------------------------------------------------------
+// EXPORTACIÓN (respeta los filtros activos: colaborador, estado, fechas)
+// ---------------------------------------------------------------------------
+function resumenFiltrosActivos() {
+  const empSel = msEmpleado.getSeleccionados();
+  const estSel = msEstado.getSeleccionados();
+  const desde = document.getElementById("filtroFechaDesde").value;
+  const hasta = document.getElementById("filtroFechaHasta").value;
+  return {
+    colaboradores: empSel.length ? empSel.join(", ") : "Todos los colaboradores",
+    estados: estSel.length ? estSel.join(", ") : "Todos los estados",
+    rango: desde && hasta ? `${fechaLegible(desde)} – ${fechaLegible(hasta)}` : "Sin restricción de fecha",
+  };
+}
+
+document.getElementById("exportExcelBtn").addEventListener("click", async () => {
+  if (!dfFiltradoActual.length) {
+    alert("No hay registros para exportar con los filtros actuales.");
+    return;
+  }
+  const periodos = obtenerPeriodosSeleccionados();
+  const etiquetaPeriodo = periodos.length === 1 ? periodos[0] : `Comparativa_${periodos.join("-")}`;
+  const marcacionesPorPeriodo = await Promise.all(periodos.map(obtenerMarcacionesDf));
+  const marcaciones = marcacionesPorPeriodo.flat();
+  const metaExport = {
+    periodoTexto: periodos.map(nombreMes).join(", "),
+    filtros: resumenFiltrosActivos(),
+    limiteDescanso: limiteDescansoActual,
+  };
+  exportarExcelConsolidado(dfFiltradoActual, marcaciones, etiquetaPeriodo, metaExport);
+});
+
+document.getElementById("exportPdfBtn").addEventListener("click", () => {
+  const fecha = document.getElementById("fechaPdf").value;
+  if (!fecha) return;
+  const registrosDelDia = cacheResumen.filter((r) => r.fecha === fecha);
+  exportarPdfResumenDiario(registrosDelDia, fecha, limiteDescansoActual);
+});
+
+// ---------------------------------------------------------------------------
+// ARRANQUE
+// ---------------------------------------------------------------------------
+async function arrancarApp() {
+  actualizarReloj();
+  await asegurarConfiguracionInicial();
+  await poblarPanelConfiguracion();
+  msEmpleado = crearMultiSelect("msEmpleado", "Todos los colaboradores");
+  msEstado = crearMultiSelect("msEstado", "Todos los estados");
+  msPdv = crearMultiSelect("msPdv", "Todos los PDV");
+  msEmpleado.onChange(() => { paginaActual = 1; aplicarFiltrosYRenderizar(); });
+  msEstado.onChange(() => { paginaActual = 1; aplicarFiltrosYRenderizar(); });
+  msPdv.onChange(() => { paginaActual = 1; aplicarFiltrosYRenderizar(); });
+  const cfg = await cargarConfiguracion();
+  limiteDescansoActual = cfg.descansoPermitidoMin;
+  await poblarPanelSincronizacionRutas();
+  // Solo se cargan los períodos disponibles para poblar los selectores; el
+  // dashboard permanece oculto hasta que el usuario suba un Excel, cambie el
+  // período, o pulse "Ver historial guardado".
+  await refrescarListaDePeriodos();
+}
+
+arrancarApp();
+
+</script>
+</body>
+</html>

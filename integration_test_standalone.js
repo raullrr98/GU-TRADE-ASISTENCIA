@@ -19,7 +19,7 @@ const CASOS_OBLIGATORIOS = [
 const { VirtualConsole } = require("jsdom");
 
 async function main() {
-  let html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+  let html = fs.readFileSync(path.join(ROOT, "index_standalone.html"), "utf8");
 
   // Sustituir los <script src="https://cdn..."> externos ANTES de construir
   // el JSDOM, para que no intente ir a buscarlos a la red real (bloqueada en
@@ -41,14 +41,12 @@ async function main() {
   // usar window.eval() manual — así los `const`/`let` de nivel superior de
   // cada archivo comparten el mismo scope léxico global entre sí, tal como
   // ocurre en un navegador real con múltiples etiquetas <script>.
-  for (const archivo of ["db.js", "etl.js", "businessLogic.js", "reportsClient.js"]) {
-    const codigo = fs.readFileSync(path.join(ROOT, archivo), "utf8");
-    html = html.replace(`<script src="${archivo}"></script>`, () => `<script>${codigo}</script>`);
-  }
-  // app.js se inyecta al final, DESPUÉS de registrar los stubs (Chart, jspdf,
-  // fake-indexeddb) porque se autoejecuta (arrancarApp()) al cargar.
   const appJsCodigo = fs.readFileSync(path.join(ROOT, "app.js"), "utf8");
-  html = html.replace('<script src="app.js"></script>', "");
+  const marcaInicioApp = "\n\n// ============================================================================\n// app.js";
+  const idxInicioApp = html.indexOf(marcaInicioApp);
+  if (idxInicioApp === -1) throw new Error("No se encontró el inicio de app.js dentro del bundle combinado");
+  const idxCierreScript = html.indexOf("\n</script>", idxInicioApp);
+  html = html.slice(0, idxInicioApp) + html.slice(idxCierreScript);
 
   const virtualConsole = new VirtualConsole();
   const erroresConsola = [];

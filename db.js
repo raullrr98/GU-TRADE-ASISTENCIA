@@ -10,7 +10,7 @@
 // ============================================================================
 
 const DB_NAME = "asistencia_pdv_db";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 let dbPromise = null;
 
 function abrirDB() {
@@ -39,6 +39,10 @@ function abrirDB() {
       }
       if (!db.objectStoreNames.contains("configuracion")) {
         db.createObjectStore("configuracion", { keyPath: "clave" });
+      }
+      if (!db.objectStoreNames.contains("rutas_asignadas")) {
+        const os = db.createObjectStore("rutas_asignadas", { keyPath: "id", autoIncrement: true });
+        os.createIndex("nombre_normalizado", "nombre_normalizado", { unique: false });
       }
     };
 
@@ -122,8 +126,14 @@ function dbDeleteByIndex(storeName, indexName, valor) {
   });
 }
 
+function dbClearStore(storeName) {
+  return conTransaccion(storeName, "readwrite", (tx) => {
+    tx.objectStore(storeName).clear();
+  });
+}
+
 function dbClearAll() {
-  const stores = ["empleados", "marcaciones_detalle", "asistencia_resumen_diario", "periodos_cargados", "configuracion"];
+  const stores = ["empleados", "marcaciones_detalle", "asistencia_resumen_diario", "periodos_cargados", "configuracion", "rutas_asignadas"];
   return conTransaccion(stores, "readwrite", (tx) => {
     stores.forEach((s) => tx.objectStore(s).clear());
   });
@@ -134,8 +144,9 @@ function dbClearAll() {
 // ---------------------------------------------------------------------------
 const CONFIG_DEFAULT = [
   { clave: "hora_entrada_teorica", valor: "08:00" },
+  { clave: "horas_jornada_esperada", valor: "8" },
   { clave: "tolerancia_min", valor: "10" },
-  { clave: "tardanza_leve_max_min", valor: "15" },
+  { clave: "tardanza_leve_max_min", valor: "29" },
   { clave: "descanso_permitido_min", valor: "60" },
 ];
 

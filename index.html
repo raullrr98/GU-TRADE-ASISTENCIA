@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>GU TRADE · Control de Asistencia y Rutas</title>
 
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -142,10 +146,60 @@
       </div>
     </header>
 
-    <div id="emptyState" class="empty-state">
-      <div class="empty-mark">＋</div>
-      <p id="emptyStateTexto">Carga tu primer Excel mensual desde <strong>01 — Cargar datos</strong> para empezar.</p>
-      <button id="verHistorialBtn" class="btn-flag hidden">Ver historial guardado</button>
+    <div id="emptyState" class="empty-state onboarding-screen">
+      <div class="onboarding-header">
+        <div class="empty-mark">＋</div>
+        <h2 class="onboarding-titulo">Antes de empezar</h2>
+        <p id="emptyStateTexto" class="onboarding-sub">Subí el Excel de marcaciones del mes y confirmá la hoja de rutas asignadas. Este paso aparece cada vez que abrís el tablero, para asegurar que estés viendo datos actualizados.</p>
+      </div>
+
+      <div class="onboarding-pasos">
+        <div class="onboarding-paso">
+          <div class="onboarding-paso-numero">1</div>
+          <div class="onboarding-paso-contenido">
+            <h3>Subir Excel de marcaciones</h3>
+            <p class="muted small">El reporte mensual que exporta el sistema (entradas, salidas, PDV visitados).</p>
+            <input type="file" id="fileInputOnboarding" accept=".xlsx" aria-label="Seleccionar archivo Excel de marcaciones" />
+            <label class="eyebrow">Período (opcional)</label>
+            <input type="text" id="periodoManualOnboarding" placeholder="AAAA-MM" />
+            <button id="procesarBtnOnboarding" class="btn-flag" disabled>Procesar Excel</button>
+            <div class="upload-status-row">
+              <span id="uploadSpinnerOnboarding" class="spinner hidden" aria-hidden="true"></span>
+              <div id="uploadStatusOnboarding" class="status-msg" role="status"></div>
+            </div>
+            <div id="uploadResumenOnboarding" class="upload-resumen hidden"></div>
+          </div>
+        </div>
+
+        <div class="onboarding-paso">
+          <div class="onboarding-paso-numero">2</div>
+          <div class="onboarding-paso-contenido">
+            <h3>Rutas asignadas <span class="muted small">(opcional)</span></h3>
+            <p class="muted small">Se configura una sola vez — a partir de ahí se sincroniza sola. Si ya la configuraste, no hace falta que hagas nada acá.</p>
+            <div id="rutasEstadoOnboarding" class="rutas-estado-chip">Sin configurar todavía</div>
+            <label class="eyebrow">Enlace de Google Sheets (CSV publicado)</label>
+            <input type="url" id="rutasSheetUrlOnboarding" placeholder="https://docs.google.com/spreadsheets/.../pub?output=csv" />
+            <label class="small" style="display:flex; align-items:center; gap:0.4rem;">
+              <input type="checkbox" id="rutasAutoSyncOnboarding" style="width:auto;" />
+              Sincronizar automáticamente al procesar cada Excel
+            </label>
+            <button id="sincronizarRutasBtnOnboarding" class="btn-ghost btn-onboarding-secundario">Sincronizar ahora</button>
+            <div id="rutasSyncStatusOnboarding" class="status-msg" role="status"></div>
+            <div id="rutasSyncInfoOnboarding" class="small muted"></div>
+
+            <div class="rail-divider">o subí un archivo manualmente</div>
+            <input type="file" id="fileInputRutasOnboarding" accept=".xlsx" aria-label="Seleccionar archivo de rutas asignadas" />
+            <button id="procesarRutasBtnOnboarding" class="btn-ghost btn-onboarding-secundario" disabled>Cargar archivo de rutas</button>
+            <div id="rutasStatusOnboarding" class="status-msg" role="status"></div>
+            <div id="rutasResumenOnboarding" class="upload-resumen hidden"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="onboarding-siguiente">
+        <div id="onboardingAviso" class="onboarding-aviso hidden"></div>
+        <button id="siguienteOnboardingBtn" class="btn-flag btn-siguiente">Siguiente — ir al tablero →</button>
+      </div>
     </div>
 
     <div id="dashboardContent" class="hidden">

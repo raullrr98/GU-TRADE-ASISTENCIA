@@ -137,24 +137,60 @@ del catálogo, recálculo automático, manejo de errores de red), pero conviene
 que confirmes en tu navegador que el enlace publicado responde correctamente
 la primera vez que lo uses.
 
-## Rediseño ejecutivo (para presentar a directorio)
+## Pantalla de bienvenida (paso obligatorio al entrar)
 
-Se reemplazó por completo la identidad visual, sin tocar ninguna regla de
-negocio ni cálculo — es un cambio 100% de `styles.css` (y los pocos colores
-que estaban escritos directo en los gráficos de `app.js` y en el PDF de
-`reportsClient.js`, ahora alineados a la misma paleta):
+Confirmado con el usuario: esta pantalla aparece **siempre** que se abre el
+tablero, incluso si ya hay datos guardados en ese navegador — no es un
+mensaje de "primera vez", es un paso obligatorio antes de ver el análisis.
 
-- **Color**: azul marino profundo (`#16233B`) en vez de negro grafito para
-  la barra lateral; bronce discreto (`#9C7A34`) como acento en vez de ámbar
-  brillante; estados en tonos desaturados (verde bosque, oliva, granate) en
-  vez de los colores semáforo saturados de antes.
-- **Tipografía**: *Georgia* (serif) para títulos, encabezados y etiquetas —
-  el aire de "memoria anual" que se pidió — combinada con una sans de
-  sistema para la interfaz y una monoespaciada para todas las cifras. Son
-  fuentes nativas del sistema operativo: el tablero sigue funcionando sin
-  conexión a internet.
-- Se suavizaron las animaciones de "rebote" al pasar el mouse (menos
-  interacción tipo app de consumo, más estático/formal).
+Reemplaza el antiguo mensaje simple por una pantalla de dos pasos con
+controles funcionales propios (no solo un texto que apunta a la barra
+lateral):
+
+1. **Subir Excel de marcaciones** — mismo control de siempre, ahora
+   protagonista de la primera pantalla.
+2. **Rutas asignadas** — enlace de Google Sheets (sincronización en vivo) o
+   archivo manual, con un chip que muestra si ya está configurado ("✓
+   Configurado — N fila(s)") o no ("Sin configurar todavía"), leído siempre
+   de IndexedDB, nunca inventado. Como se confirmó, esto se configura una
+   sola vez: el campo ya viene pre-cargado con el enlace guardado, no hace
+   falta volver a pegarlo cada vez.
+3. Un botón **"Siguiente — ir al tablero →"** lleva al análisis. Si no hay
+   ningún Excel cargado todavía (ni en esta sesión ni antes), el botón
+   avisa en vez de navegar a un tablero vacío.
+
+Estos controles (subir Excel, subir/sincronizar rutas) existen ahora **en
+dos lugares** — esta pantalla de bienvenida y la barra lateral de siempre
+(para seguir usándolos una vez que ya estás dentro del tablero, por ejemplo
+al mes siguiente) — pero ambos llaman a las mismas funciones compartidas
+(`procesarExcelCompartido`, `procesarArchivoRutasCompartido`,
+`sincronizarRutasCompartido`), así que no hay ninguna lógica de negocio
+duplicada entre ellos.
+
+## Identidad visual actual (estilo "Minerva Foods")
+
+Se reemplazó por completo la identidad visual dos veces: primero por una
+versión "ejecutiva" con serif y tonos apagados, y luego —a pedido explícito,
+con una captura de referencia de otro tablero (Minerva Foods)— por el
+look SaaS moderno que está vigente ahora. Es un cambio 100% de `styles.css`
+(y los pocos colores que estaban escritos directo en los gráficos de
+`app.js` y en el PDF de `reportsClient.js`, ahora alineados a la misma
+paleta) — ninguna regla de negocio ni cálculo se tocó.
+
+- **Color**: fondo gris frío claro (`#F4F5F7`), tarjetas blancas con **borde
+  superior de color** (azul, verde, coral, oro, morado — uno distinto por
+  cada tarjeta KPI, como en la referencia) en vez del borde izquierdo único
+  de antes. Barra lateral azul marino casi negro (`#0E1A2E`). Azul (`#3B79D1`)
+  como color de resalte e interacción (antes bronce).
+- **Tipografía**: *Inter* (importada de Google Fonts, con una pila de
+  fuentes nativas del sistema como respaldo si no hay internet) en toda la
+  interfaz — sans moderna y redondeada, sin serif.
+- **Tarjetas KPI**: esquinas más redondeadas (14px), ícono en una insignia
+  cuadrada con fondo pastel (a juego con el color del borde superior de esa
+  tarjeta) en vez del círculo plano de antes.
+- Botones más redondeados (9px, casi píldora), tags de estado en formato
+  píldora con colores moderadamente más vivos que la versión "ejecutiva"
+  anterior (sin llegar a los semáforos saturados de la primera versión).
 
 ## Qué cambió en esta revisión
 

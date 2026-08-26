@@ -231,6 +231,7 @@ document.getElementById("borrarDatosBtn").addEventListener("click", async () => 
 // INGESTA DE EXCEL
 // ---------------------------------------------------------------------------
 let archivoSeleccionado = null;
+let archivoSeleccionadoOnboarding = null;
 
 document.getElementById("fileInput").addEventListener("change", (e) => {
   archivoSeleccionado = e.target.files[0] || null;
@@ -238,18 +239,47 @@ document.getElementById("fileInput").addEventListener("change", (e) => {
   document.getElementById("uploadResumen").classList.add("hidden");
 });
 
-document.getElementById("procesarBtn").addEventListener("click", async () => {
-  if (!archivoSeleccionado) return;
-  const statusEl = document.getElementById("uploadStatus");
-  const spinnerEl = document.getElementById("uploadSpinner");
-  const resumenEl = document.getElementById("uploadResumen");
+document.getElementById("fileInputOnboarding").addEventListener("change", (e) => {
+  archivoSeleccionadoOnboarding = e.target.files[0] || null;
+  document.getElementById("procesarBtnOnboarding").disabled = !archivoSeleccionadoOnboarding;
+  document.getElementById("uploadResumenOnboarding").classList.add("hidden");
+});
+
+document.getElementById("procesarBtn").addEventListener("click", () =>
+  procesarExcelCompartido(archivoSeleccionado, {
+    periodoManualId: "periodoManual",
+    statusId: "uploadStatus",
+    spinnerId: "uploadSpinner",
+    resumenId: "uploadResumen",
+  })
+);
+
+document.getElementById("procesarBtnOnboarding").addEventListener("click", () =>
+  procesarExcelCompartido(archivoSeleccionadoOnboarding, {
+    periodoManualId: "periodoManualOnboarding",
+    statusId: "uploadStatusOnboarding",
+    spinnerId: "uploadSpinnerOnboarding",
+    resumenId: "uploadResumenOnboarding",
+  })
+);
+
+// Lógica de procesamiento del Excel de marcaciones, compartida entre el
+// panel lateral "01 — Cargar datos" y la pantalla de bienvenida (paso
+// obligatorio al entrar). Ambos llaman a esta misma función — nunca hay una
+// segunda copia de las reglas de negocio, solo cambian los elementos de UI
+// que se actualizan.
+async function procesarExcelCompartido(archivo, ui) {
+  if (!archivo) return;
+  const statusEl = document.getElementById(ui.statusId);
+  const spinnerEl = document.getElementById(ui.spinnerId);
+  const resumenEl = document.getElementById(ui.resumenId);
   statusEl.textContent = "Leyendo y procesando archivo...";
   statusEl.className = "status-msg";
   spinnerEl.classList.remove("hidden");
   resumenEl.classList.add("hidden");
 
   try {
-    const arrayBuffer = await archivoSeleccionado.arrayBuffer();
+    const arrayBuffer = await archivo.arrayBuffer();
     const { filas, meta } = leerYLimpiarExcel(arrayBuffer);
     if (!filas.length) {
       throw new Error(
@@ -259,7 +289,7 @@ document.getElementById("procesarBtn").addEventListener("click", async () => {
       );
     }
 
-    const periodoManual = document.getElementById("periodoManual").value.trim();
+    const periodoManual = document.getElementById(ui.periodoManualId).value.trim();
     const periodo = periodoManual || detectarPeriodo(filas);
 
     // 1) Upsert de empleados (catálogo maestro)
@@ -296,7 +326,7 @@ document.getElementById("procesarBtn").addEventListener("click", async () => {
     const cfgSync = await dbGetAll("configuracion");
     const autoSyncActivo = cfgSync.find((c) => c.clave === "rutas_auto_sync")?.valor === "1";
     if (autoSyncActivo) {
-      await sincronizarRutasDesdeGoogleSheets(true);
+      await sincronizarRutasCompartido(true, { urlId: "rutasSheetUrl", statusId: "rutasSyncStatus", infoId: "rutasSyncInfo", resumenId: "rutasResumen" });
     }
 
     // 3b) Aplicar cumplimiento de ruta asignada, si hay un catálogo cargado
@@ -322,7 +352,7 @@ document.getElementById("procesarBtn").addEventListener("click", async () => {
     //    historial de procesos en la barra lateral)
     await dbPut("periodos_cargados", {
       periodo,
-      nombre_archivo_original: archivoSeleccionado.name,
+      nombre_archivo_original: archivo.name,
       filas_procesadas: marcacionesInsert.length,
       empleados_afectados: empleadosUnicos.length,
       fecha_carga: new Date().toISOString(),
@@ -341,7 +371,7 @@ document.getElementById("procesarBtn").addEventListener("click", async () => {
 
     resumenEl.classList.remove("hidden");
     resumenEl.innerHTML = `
-      <div class="ur-item"><span>Archivo</span><strong>${archivoSeleccionado.name}</strong></div>
+      <div class="ur-item"><span>Archivo</span><strong>${archivo.name}</strong></div>
       <div class="ur-item"><span>Filas procesadas</span><strong>${filas.length}</strong></div>
       <div class="ur-item"><span>Colaboradores detectados</span><strong>${empleadosUnicos.length}</strong></div>
       <div class="ur-item"><span>Fecha inicial</span><strong>${fechaLegible(fechas[0])}</strong></div>
@@ -351,14 +381,18 @@ document.getElementById("procesarBtn").addEventListener("click", async () => {
       ${advertencias.length ? `<div class="ur-warn">⚠ ${advertencias.join(" · ")}</div>` : ""}
     `;
 
-    await refrescarPeriodosYVista(periodo);
+    // Refresca la lista de períodos y el historial, pero NO muestra el
+    // dashboard automáticamente — eso solo pasa al pulsar "Siguiente" en la
+    // pantalla de bienvenida (paso obligatorio, confirmado con el usuario).
+    await refrescarListaDePeriodos();
+    limpiarAvisoOnboarding();
   } catch (err) {
     statusEl.textContent = "Error: " + err.message;
     statusEl.classList.add("error");
   } finally {
     spinnerEl.classList.add("hidden");
   }
-});
+}
 
 async function guardarResumenes(periodo, resumenes) {
   await dbDeleteByIndex("asistencia_resumen_diario", "periodo", periodo);
@@ -369,6 +403,7 @@ async function guardarResumenes(periodo, resumenes) {
 // INGESTA DEL CATÁLOGO DE RUTAS ASIGNADAS (archivo aparte, no cambia mes a mes)
 // ---------------------------------------------------------------------------
 let archivoRutasSeleccionado = null;
+let archivoRutasSeleccionadoOnboarding = null;
 
 document.getElementById("fileInputRutas").addEventListener("change", (e) => {
   archivoRutasSeleccionado = e.target.files[0] || null;
@@ -376,25 +411,38 @@ document.getElementById("fileInputRutas").addEventListener("change", (e) => {
   document.getElementById("rutasResumen").classList.add("hidden");
 });
 
-document.getElementById("procesarRutasBtn").addEventListener("click", async () => {
-  if (!archivoRutasSeleccionado) return;
-  const statusEl = document.getElementById("rutasStatus");
-  const resumenEl = document.getElementById("rutasResumen");
+document.getElementById("fileInputRutasOnboarding").addEventListener("change", (e) => {
+  archivoRutasSeleccionadoOnboarding = e.target.files[0] || null;
+  document.getElementById("procesarRutasBtnOnboarding").disabled = !archivoRutasSeleccionadoOnboarding;
+  document.getElementById("rutasResumenOnboarding").classList.add("hidden");
+});
+
+document.getElementById("procesarRutasBtn").addEventListener("click", () =>
+  procesarArchivoRutasCompartido(archivoRutasSeleccionado, { statusId: "rutasStatus", resumenId: "rutasResumen" })
+);
+document.getElementById("procesarRutasBtnOnboarding").addEventListener("click", () =>
+  procesarArchivoRutasCompartido(archivoRutasSeleccionadoOnboarding, { statusId: "rutasStatusOnboarding", resumenId: "rutasResumenOnboarding" })
+);
+
+async function procesarArchivoRutasCompartido(archivo, ui) {
+  if (!archivo) return;
+  const statusEl = document.getElementById(ui.statusId);
+  const resumenEl = document.getElementById(ui.resumenId);
   statusEl.textContent = "Leyendo archivo de rutas...";
   statusEl.className = "status-msg";
   resumenEl.classList.add("hidden");
 
   try {
-    const arrayBuffer = await archivoRutasSeleccionado.arrayBuffer();
+    const arrayBuffer = await archivo.arrayBuffer();
     const { asignaciones, meta } = leerRutasAsignadas(arrayBuffer);
-    await guardarAsignacionesYRecalcular(asignaciones, meta, archivoRutasSeleccionado.name, resumenEl);
+    await guardarAsignacionesYRecalcular(asignaciones, meta, archivo.name, resumenEl);
     statusEl.textContent = "Rutas cargadas correctamente.";
     statusEl.classList.add("ok");
   } catch (err) {
     statusEl.textContent = "Error: " + err.message;
     statusEl.classList.add("error");
   }
-});
+}
 
 // Lógica compartida entre "cargar archivo manual" y "sincronizar en vivo":
 // guarda el catálogo de rutas en IndexedDB y recalcula todo el histórico.
@@ -418,6 +466,8 @@ async function guardarAsignacionesYRecalcular(asignaciones, meta, nombreOrigen, 
     `;
   }
 
+  actualizarChipEstadoRutas();
+
   // Recalcular todo el histórico ya cargado con el nuevo catálogo de rutas
   await recalcularTodoElHistorico();
   const dashboardYaVisible = !document.getElementById("dashboardContent").classList.contains("hidden");
@@ -432,42 +482,81 @@ async function guardarAsignacionesYRecalcular(asignaciones, meta, nombreOrigen, 
 // específica → formato CSV → copiar enlace). Google sirve ese endpoint con
 // cabeceras CORS abiertas, así que se puede leer directo desde el navegador
 // sin backend propio.
-document.getElementById("rutasSheetUrl").addEventListener("change", async (e) => {
-  await dbPutMany("configuracion", [{ clave: "rutas_sheet_url", valor: e.target.value.trim() }]);
-});
-document.getElementById("rutasAutoSync").addEventListener("change", async (e) => {
-  await dbPutMany("configuracion", [{ clave: "rutas_auto_sync", valor: e.target.checked ? "1" : "0" }]);
-});
+
+// Guarda la URL en config y mantiene sincronizados los DOS campos donde
+// puede vivir (barra lateral y pantalla de bienvenida) — cambiar cualquiera
+// de los dos actualiza el mismo valor guardado.
+async function guardarUrlRutas(valor) {
+  await dbPutMany("configuracion", [{ clave: "rutas_sheet_url", valor: valor.trim() }]);
+  document.getElementById("rutasSheetUrl").value = valor.trim();
+  document.getElementById("rutasSheetUrlOnboarding").value = valor.trim();
+  actualizarChipEstadoRutas();
+}
+document.getElementById("rutasSheetUrl").addEventListener("change", (e) => guardarUrlRutas(e.target.value));
+document.getElementById("rutasSheetUrlOnboarding").addEventListener("change", (e) => guardarUrlRutas(e.target.value));
+
+async function guardarAutoSyncRutas(activo) {
+  await dbPutMany("configuracion", [{ clave: "rutas_auto_sync", valor: activo ? "1" : "0" }]);
+  document.getElementById("rutasAutoSync").checked = activo;
+  document.getElementById("rutasAutoSyncOnboarding").checked = activo;
+}
+document.getElementById("rutasAutoSync").addEventListener("change", (e) => guardarAutoSyncRutas(e.target.checked));
+document.getElementById("rutasAutoSyncOnboarding").addEventListener("change", (e) => guardarAutoSyncRutas(e.target.checked));
+
+// Chip visual ("Sin configurar todavía" / "✓ Configurado") en la pantalla
+// de bienvenida, reflejando datos reales de IndexedDB — nunca información
+// inventada.
+async function actualizarChipEstadoRutas() {
+  const chip = document.getElementById("rutasEstadoOnboarding");
+  if (!chip) return;
+  const asignaciones = await dbGetAll("rutas_asignadas");
+  if (asignaciones.length) {
+    chip.textContent = `✓ Configurado — ${asignaciones.length} fila(s) de ruta`;
+    chip.classList.add("configurado");
+  } else {
+    chip.textContent = "Sin configurar todavía";
+    chip.classList.remove("configurado");
+  }
+}
+
+function textoUltimaSync(fechaISO) {
+  const fecha = new Date(fechaISO);
+  return `Última sincronización: ${fecha.toLocaleDateString("es-ES")} ${fecha.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`;
+}
 
 async function poblarPanelSincronizacionRutas() {
   const filas = await dbGetAll("configuracion");
   const cfg = {};
   filas.forEach((row) => (cfg[row.clave] = row.valor));
   document.getElementById("rutasSheetUrl").value = cfg.rutas_sheet_url || "";
+  document.getElementById("rutasSheetUrlOnboarding").value = cfg.rutas_sheet_url || "";
   document.getElementById("rutasAutoSync").checked = cfg.rutas_auto_sync === "1";
+  document.getElementById("rutasAutoSyncOnboarding").checked = cfg.rutas_auto_sync === "1";
   if (cfg.rutas_ultima_sincronizacion) {
-    const fecha = new Date(cfg.rutas_ultima_sincronizacion);
-    document.getElementById("rutasSyncInfo").textContent =
-      `Última sincronización: ${fecha.toLocaleDateString("es-ES")} ${fecha.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`;
+    document.getElementById("rutasSyncInfo").textContent = textoUltimaSync(cfg.rutas_ultima_sincronizacion);
+    document.getElementById("rutasSyncInfoOnboarding").textContent = textoUltimaSync(cfg.rutas_ultima_sincronizacion);
   }
+  await actualizarChipEstadoRutas();
 }
 
 /**
  * Descarga la hoja de rutas publicada en Google Sheets (CSV) y actualiza el
- * catálogo local. Se usa tanto para el botón "Sincronizar ahora" como para
- * la sincronización automática al procesar un Excel de marcaciones.
+ * catálogo local. Se usa tanto para los botones "Sincronizar ahora" (barra
+ * lateral y pantalla de bienvenida) como para la sincronización automática
+ * al procesar un Excel de marcaciones.
  * @param {boolean} silencioso - si es true, no interrumpe con errores
  *   visibles (usado en la sincronización automática, best-effort).
+ * @param {Object} ui - { urlId, statusId, infoId, resumenId }
  */
-async function sincronizarRutasDesdeGoogleSheets(silencioso = false) {
-  const url = document.getElementById("rutasSheetUrl").value.trim();
+async function sincronizarRutasCompartido(silencioso, ui) {
+  const url = document.getElementById(ui.urlId).value.trim();
   if (!url) {
     if (!silencioso) throw new Error("Pegá primero el enlace de Google Sheets (CSV).");
     return false;
   }
 
-  const statusEl = document.getElementById("rutasSyncStatus");
-  const resumenEl = document.getElementById("rutasResumen");
+  const statusEl = document.getElementById(ui.statusId);
+  const resumenEl = document.getElementById(ui.resumenId);
   if (!silencioso) {
     statusEl.textContent = "Descargando desde Google Sheets...";
     statusEl.className = "status-msg";
@@ -486,8 +575,8 @@ async function sincronizarRutasDesdeGoogleSheets(silencioso = false) {
 
     const ahora = new Date().toISOString();
     await dbPutMany("configuracion", [{ clave: "rutas_ultima_sincronizacion", valor: ahora }]);
-    document.getElementById("rutasSyncInfo").textContent =
-      `Última sincronización: ${new Date(ahora).toLocaleDateString("es-ES")} ${new Date(ahora).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`;
+    document.getElementById("rutasSyncInfo").textContent = textoUltimaSync(ahora);
+    document.getElementById("rutasSyncInfoOnboarding").textContent = textoUltimaSync(ahora);
 
     if (!silencioso) {
       statusEl.textContent = "Sincronizado correctamente.";
@@ -512,7 +601,12 @@ async function sincronizarRutasDesdeGoogleSheets(silencioso = false) {
   }
 }
 
-document.getElementById("sincronizarRutasBtn").addEventListener("click", () => sincronizarRutasDesdeGoogleSheets(false));
+document.getElementById("sincronizarRutasBtn").addEventListener("click", () =>
+  sincronizarRutasCompartido(false, { urlId: "rutasSheetUrl", statusId: "rutasSyncStatus", infoId: "rutasSyncInfo", resumenId: "rutasResumen" })
+);
+document.getElementById("sincronizarRutasBtnOnboarding").addEventListener("click", () =>
+  sincronizarRutasCompartido(false, { urlId: "rutasSheetUrlOnboarding", statusId: "rutasSyncStatusOnboarding", infoId: "rutasSyncInfoOnboarding", resumenId: "rutasResumenOnboarding" })
+);
 
 // ---------------------------------------------------------------------------
 // SELECTOR DE PERÍODO
@@ -605,14 +699,12 @@ async function refrescarListaDePeriodos() {
 
 function actualizarEmptyState() {
   const textoEl = document.getElementById("emptyStateTexto");
-  const botonEl = document.getElementById("verHistorialBtn");
   if (periodosDisponibles.length) {
     textoEl.innerHTML =
-      "Ya tienes datos guardados en este navegador de cargas anteriores. Sube un Excel nuevo, elige un período en <strong>03 — Período</strong>, o pulsa el botón para verlos.";
-    botonEl.classList.remove("hidden");
+      "Ya tenés datos guardados en este navegador. Si no necesitás subir nada nuevo, pulsá <strong>Siguiente</strong> para ir directo al tablero.";
   } else {
-    textoEl.innerHTML = "Carga tu primer Excel mensual desde <strong>01 — Cargar datos</strong> para empezar.";
-    botonEl.classList.add("hidden");
+    textoEl.innerHTML =
+      "Todavía no cargaste ningún mes en este navegador. Subí tu primer Excel para continuar.";
   }
 }
 
@@ -662,8 +754,24 @@ function renderHistorialProcesos() {
 
 document.getElementById("actualizarHistorialBtn")?.addEventListener("click", refrescarListaDePeriodos);
 
-document.getElementById("verHistorialBtn").addEventListener("click", () => {
-  mostrarDashboard();
+// "Siguiente" es el paso obligatorio de la pantalla de bienvenida: si no hay
+// ningún período cargado todavía, no tiene sentido pasar al tablero (no
+// habría nada que ver), así que se avisa en vez de navegar en silencio.
+function limpiarAvisoOnboarding() {
+  const aviso = document.getElementById("onboardingAviso");
+  aviso.classList.add("hidden");
+  aviso.textContent = "";
+}
+
+document.getElementById("siguienteOnboardingBtn").addEventListener("click", async () => {
+  if (!periodosDisponibles.length) {
+    const aviso = document.getElementById("onboardingAviso");
+    aviso.textContent = "Subí al menos un Excel de marcaciones antes de continuar.";
+    aviso.classList.remove("hidden");
+    return;
+  }
+  limpiarAvisoOnboarding();
+  await mostrarDashboard();
 });
 
 async function refrescarPeriodosYVista(periodoAEnfocar) {
@@ -1012,7 +1120,7 @@ const pluginValorAlFinal = {
         if (valor === undefined || valor === null) return;
         ctx.save();
         ctx.font = "600 11px " + FUENTE_MONO;
-        ctx.fillStyle = "#16233B";
+        ctx.fillStyle = "#0E1A2E";
         ctx.textBaseline = "middle";
         if (chart.options.indexAxis === "y") {
           ctx.textAlign = "left";
@@ -1047,7 +1155,7 @@ function renderRanking(df) {
     type: "bar",
     data: {
       labels: entradas.map((e) => e[0]),
-      datasets: [{ label: "Cantidad de tardanzas", data: entradas.map((e) => e[1].total), backgroundColor: "#7B3B36", borderRadius: 2, barThickness: 16 }],
+      datasets: [{ label: "Cantidad de tardanzas", data: entradas.map((e) => e[1].total), backgroundColor: "#D24B4B", borderRadius: 2, barThickness: 16 }],
     },
     plugins: [pluginValorAlFinal],
     options: {
@@ -1075,7 +1183,7 @@ function renderRanking(df) {
         x: {
           title: { display: true, text: "Cantidad de tardanzas (número de eventos)", font: { family: FUENTE_UI, size: 10 } },
           ticks: { font: { family: FUENTE_UI, size: 11 }, precision: 0, stepSize: 1 },
-          grid: { color: "#DEDAD0" },
+          grid: { color: "#E4E6EC" },
         },
         y: { ticks: { font: { family: FUENTE_UI, size: 11 }, autoSkip: false }, grid: { display: false } },
       },
@@ -1101,7 +1209,7 @@ function renderMinutosTardanza(df) {
     type: "bar",
     data: {
       labels: entradas.map((e) => e[0]),
-      datasets: [{ label: "Minutos acumulados", data: entradas.map((e) => e[1].minutos), backgroundColor: "#9C7A34", borderRadius: 2, barThickness: 16 }],
+      datasets: [{ label: "Minutos acumulados", data: entradas.map((e) => e[1].minutos), backgroundColor: "#3B79D1", borderRadius: 2, barThickness: 16 }],
     },
     plugins: [pluginValorAlFinal],
     options: {
@@ -1129,7 +1237,7 @@ function renderMinutosTardanza(df) {
         x: {
           title: { display: true, text: "Minutos", font: { family: FUENTE_UI, size: 10 } },
           ticks: { font: { family: FUENTE_MONO, size: 10 } },
-          grid: { color: "#DEDAD0" },
+          grid: { color: "#E4E6EC" },
         },
         y: { ticks: { font: { family: FUENTE_UI, size: 11 }, autoSkip: false }, grid: { display: false } },
       },

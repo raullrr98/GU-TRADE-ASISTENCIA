@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>GU TRADE · Control de Asistencia y Rutas</title>
 
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -12,31 +16,39 @@
 
 <style>
 :root {
-  /* Paleta ejecutiva: azul marino profundo + bronce discreto + estados
-     desaturados (verde bosque, ocre, granate) — pensada para presentarse
-     en una sala de directorio, no para una app de consumo. */
-  --ink: #16233B;
-  --ink-soft: #5B6472;
-  --paper: #F5F3EE;
+  /* Paleta estilo "Minerva Foods": gris frío de fondo, tarjetas blancas con
+     acento de color arriba, azul marino casi negro en la barra lateral y en
+     los botones primarios, azul como color de resalte/interacción. */
+  --ink: #0E1A2E;
+  --ink-soft: #667085;
+  --paper: #F4F5F7;
   --paper-soft: #FFFFFF;
-  --line: #DEDAD0;
-  --amber: #9C7A34;
-  --amber-deep: #7A5E27;
-  --ok: #3C6B54;
-  --ok-soft: #E4ECE6;
-  --warn: #8F7130;
-  --warn-soft: #EFE7D3;
-  --bad: #7B3B36;
-  --bad-soft: #EFDEDA;
-  --gris-tag: #686D78;
+  --line: #E4E6EC;
+  --amber: #3B79D1;
+  --amber-deep: #2C5FA8;
+  --ok: #1E9A5A;
+  --ok-soft: #E1F3E8;
+  --warn: #B4791F;
+  --warn-soft: #FBEEDD;
+  --bad: #D24B4B;
+  --bad-soft: #FBE4E4;
+  --gris-tag: #6B7280;
 
-  /* Serif para títulos y etiquetas (aire de reporte anual / memoria
-     corporativa); sans de sistema para interfaz; mono para cifras, para
-     que horas, minutos y montos alineen con precisión. Todas nativas del
-     sistema operativo — el tablero sigue funcionando sin conexión. */
-  --f-display: Georgia, "Times New Roman", Times, serif;
-  --f-ui: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  --f-mono: "Consolas", "SF Mono", Menlo, "Courier New", monospace;
+  /* Temas de acento para las tarjetas KPI (borde superior + insignia del
+     ícono), como en el tablero de referencia: cada indicador tiene su
+     propio color pastel en vez de repetir siempre el mismo acento. */
+  --kpi-azul-top: #3B79D1; --kpi-azul-bg: #E3EDFB; --kpi-azul-fg: #2F62B8;
+  --kpi-verde-top: #21A366; --kpi-verde-bg: #E1F3E8; --kpi-verde-fg: #1E8A57;
+  --kpi-oro-top: #D99A3E; --kpi-oro-bg: #FBEEDD; --kpi-oro-fg: #B4791F;
+  --kpi-morado-top: #8A63DB; --kpi-morado-bg: #EFE7FA; --kpi-morado-fg: #7C4FD1;
+  --kpi-coral-top: #E15B5B; --kpi-coral-bg: #FBE4E4; --kpi-coral-fg: #D24B4B;
+
+  /* Inter (vía Google Fonts) para una tipografía sans moderna y redondeada,
+     con una pila de reserva de fuentes nativas del sistema para que el
+     tablero se vea casi idéntico incluso sin conexión a internet. */
+  --f-display: "Inter", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --f-ui: "Inter", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --f-mono: "Inter", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -52,19 +64,19 @@ body {
   *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }
 
-:focus-visible { outline: 2px solid var(--amber-deep); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
 .hidden { display: none !important; }
 .muted { color: var(--ink-soft); }
 .small { font-size: 0.8rem; }
-.mono { font-family: var(--f-mono); }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
 
 .eyebrow {
-  font-family: var(--f-display);
+  font-family: var(--f-ui);
   text-transform: uppercase;
-  letter-spacing: 0.045em;
-  font-weight: 700;
-  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  font-size: 0.72rem;
   color: var(--ink-soft);
 }
 
@@ -73,7 +85,7 @@ body {
 
 .sidebar-toggle {
   display: none; position: fixed; top: 0.8rem; left: 0.8rem; z-index: 50;
-  width: 40px; height: 40px; border-radius: 4px; border: none;
+  width: 40px; height: 40px; border-radius: 10px; border: none;
   background: var(--ink); color: #fff; font-size: 1.2rem; cursor: pointer;
 }
 
@@ -85,28 +97,29 @@ body {
 
 .brand { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1rem; }
 .brand-mark {
-  background: var(--amber); color: var(--ink); width: 34px; height: 34px;
-  display: flex; align-items: center; justify-content: center; border-radius: 4px;
+  background: var(--amber); color: #fff; width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center; border-radius: 10px;
 }
-.brand-name { font-family: var(--f-display); font-weight: 700; font-size: 1.15rem; letter-spacing: 0.04em; }
-.brand-sub { font-size: 0.72rem; color: #8D96A8; letter-spacing: 0.03em; }
+.brand-name { font-family: var(--f-display); font-weight: 800; font-size: 1.2rem; letter-spacing: -0.01em; }
+.brand-sub { font-size: 0.7rem; color: #8D96A8; letter-spacing: 0.06em; text-transform: uppercase; }
 
-.rail-panel { border-top: 1px solid #293A54; padding: 0.2rem 0; }
+.rail-panel { border-top: 1px solid #223047; padding: 0.2rem 0; }
 .rail-panel summary {
-  cursor: pointer; font-family: var(--f-display); text-transform: uppercase; letter-spacing: 0.05em;
-  font-weight: 600; font-size: 0.85rem; padding: 0.55rem 0; color: #D6D9E0;
-  list-style: none; display: flex; align-items: center; gap: 0.5rem;
-  transition: color 0.15s ease;
+  cursor: pointer; font-family: var(--f-ui); text-transform: uppercase; letter-spacing: 0.04em;
+  font-weight: 600; font-size: 0.82rem; padding: 0.55rem 0.4rem; color: #D6D9E0;
+  list-style: none; display: flex; align-items: center; gap: 0.5rem; border-radius: 8px;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.rail-panel summary:hover { color: #fff; }
+.rail-panel summary:hover { color: #fff; background: rgba(255,255,255,0.05); }
+.rail-panel[open] summary { color: #fff; }
 .rail-panel summary::-webkit-details-marker { display: none; }
 .rail-icon { color: var(--amber); font-size: 1rem; width: 1.1em; text-align: center; flex-shrink: 0; }
 
-.rail-body { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.3rem 0 0.9rem; }
+.rail-body { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.3rem 0.4rem 0.9rem; }
 .rail-body .eyebrow { color: #8D96A8; margin-top: 0.2rem; }
 .rail-body input[type="text"], .rail-body input[type="number"], .rail-body select {
-  padding: 0.5rem 0.6rem; border: 1px solid #354761; border-radius: 4px; width: 100%;
-  background: #1C2B44; color: #E7E9EE; font-family: var(--f-ui); font-size: 0.85rem;
+  padding: 0.5rem 0.6rem; border: 1px solid #263650; border-radius: 8px; width: 100%;
+  background: #16233A; color: #E7E9EE; font-family: var(--f-ui); font-size: 0.85rem;
 }
 .rail-body input[type="file"] { color: #D6D9E0; font-size: 0.8rem; }
 .btn-link-anchor { display: inline-block; text-decoration: none; text-align: center; }
@@ -114,35 +127,35 @@ body {
 .radio-group { display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.88rem; color: #D6D9E0; }
 
 .btn-flag, .btn-ghost, .btn-text {
-  cursor: pointer; border-radius: 4px; padding: 0.6rem 0.9rem; font-weight: 600; font-size: 0.85rem;
+  cursor: pointer; border-radius: 9px; padding: 0.6rem 0.9rem; font-weight: 600; font-size: 0.85rem;
   border: none; font-family: var(--f-ui); transition: filter 0.15s ease, transform 0.1s ease;
 }
 .btn-flag:hover, .btn-ghost:hover { filter: brightness(1.08); }
 .btn-flag:active, .btn-ghost:active { transform: translateY(1px); }
-.btn-flag { background: var(--amber); color: #241a05; border-left: 4px solid var(--amber-deep); }
-.btn-flag:disabled { background: #3E4A60; color: #8D96A8; border-left-color: #3A3F48; cursor: not-allowed; filter: none; }
-.btn-ghost { background: #1E2C43; color: #E7E9EE; border: 1px solid #354761; }
+.btn-flag { background: var(--amber); color: #fff; }
+.btn-flag:disabled { background: #33415A; color: #8D96A8; cursor: not-allowed; filter: none; }
+.btn-ghost { background: #16233A; color: #E7E9EE; border: 1px solid #263650; }
 .btn-text { background: none; color: #8D96A8; text-decoration: underline; font-size: 0.78rem; margin-top: auto; text-align: left; padding: 0.4rem 0; }
-.btn-icon-text { background: none; border: 1px solid #354761; color: #D6D9E0; border-radius: 4px; width: 26px; height: 26px; cursor: pointer; }
+.btn-icon-text { background: none; border: 1px solid #263650; color: #D6D9E0; border-radius: 8px; width: 26px; height: 26px; cursor: pointer; }
 
 .status-msg { font-size: 0.78rem; min-height: 1.1em; }
-.status-msg.ok { color: #7FB89A; }
-.status-msg.error { color: #D99991; }
+.status-msg.ok { color: #7FD9A6; }
+.status-msg.error { color: #F0A3A3; }
 
 .upload-status-row { display: flex; align-items: center; gap: 0.5rem; }
 .spinner {
-  width: 14px; height: 14px; border: 2px solid #3A3F48; border-top-color: var(--amber);
+  width: 14px; height: 14px; border: 2px solid #33415A; border-top-color: var(--amber);
   border-radius: 50%; animation: girar 0.7s linear infinite; flex-shrink: 0;
 }
 @keyframes girar { to { transform: rotate(360deg); } }
 
 .upload-resumen {
-  background: #1C2B44; border: 1px solid #354761; border-radius: 4px; padding: 0.6rem 0.7rem;
+  background: #16233A; border: 1px solid #263650; border-radius: 8px; padding: 0.6rem 0.7rem;
   margin-top: 0.4rem; font-size: 0.76rem; display: flex; flex-direction: column; gap: 0.25rem;
 }
 .ur-item { display: flex; justify-content: space-between; gap: 0.5rem; color: #B8BEC8; }
 .ur-item strong { color: #E7E9EE; font-family: var(--f-mono); font-weight: 600; }
-.ur-warn { color: #D2A85E; margin-top: 0.2rem; }
+.ur-warn { color: #E0B15E; margin-top: 0.2rem; }
 
 .rail-footnote { font-size: 0.7rem; color: #6C7488; line-height: 1.4; margin: 0; }
 .rail-divider {
@@ -150,22 +163,22 @@ body {
   position: relative; text-transform: uppercase; letter-spacing: 0.04em;
 }
 .rail-divider::before, .rail-divider::after {
-  content: ""; position: absolute; top: 50%; width: 30%; height: 1px; background: #293A54;
+  content: ""; position: absolute; top: 50%; width: 30%; height: 1px; background: #223047;
 }
 .rail-divider::before { left: 0; }
 .rail-divider::after { right: 0; }
 
 /* ---------- Historial de procesos (barra lateral) ---------- */
-.rail-historial { border-top: 1px solid #293A54; padding-top: 0.6rem; }
-.rail-historial-header { display: flex; align-items: center; justify-content: space-between; padding: 0.2rem 0; }
+.rail-historial { border-top: 1px solid #223047; padding-top: 0.6rem; }
+.rail-historial-header { display: flex; align-items: center; justify-content: space-between; padding: 0.2rem 0.4rem; }
 .rail-historial .rail-body { padding-top: 0.5rem; gap: 0.4rem; }
 .hp-vacio { padding: 0.3rem 0; }
 .hp-item {
   display: flex; align-items: center; gap: 0.55rem; width: 100%; text-align: left;
-  background: #1C2B44; border: 1px solid #293A54; border-radius: 4px; padding: 0.5rem 0.6rem;
+  background: #16233A; border: 1px solid #223047; border-radius: 8px; padding: 0.5rem 0.6rem;
   cursor: pointer; color: #E7E9EE; transition: background 0.15s ease;
 }
-.hp-item:hover { background: #243651; }
+.hp-item:hover { background: #1C2C48; }
 .hp-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .hp-dot-verde { background: var(--ok); }
 .hp-dot-amarillo { background: var(--warn); }
@@ -179,42 +192,84 @@ body {
 
 .board-header {
   display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 0.8rem;
-  border-bottom: 2px solid var(--ink); padding-bottom: 0.8rem; margin-bottom: 1.4rem;
+  padding-bottom: 1rem; margin-bottom: 1.4rem;
 }
 .board-header h1 {
-  font-family: var(--f-display); font-size: 1.9rem; font-weight: 700; margin: 0; letter-spacing: 0.01em;
-  text-transform: uppercase;
+  font-family: var(--f-display); font-size: 1.65rem; font-weight: 800; margin: 0; letter-spacing: -0.015em;
+  color: var(--ink);
 }
-.board-header-sub { margin: 0.15rem 0 0; font-size: 0.85rem; color: var(--ink-soft); }
+.board-header-sub { margin: 0.2rem 0 0; font-size: 0.85rem; color: var(--ink-soft); }
 .board-header-acciones { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .clock { font-size: 0.8rem; color: var(--ink-soft); }
 .header-chip {
-  background: var(--paper-soft); border: 1px solid var(--line); border-radius: 4px;
-  padding: 0.4rem 0.7rem; font-size: 0.8rem; color: var(--ink);
+  background: var(--paper-soft); border: 1px solid var(--line); border-radius: 9px;
+  padding: 0.45rem 0.8rem; font-size: 0.8rem; color: var(--ink); font-weight: 500;
 }
 .btn-export {
-  display: inline-flex; align-items: center; gap: 0.35rem; border: none; border-radius: 4px;
-  padding: 0.5rem 0.85rem; font-weight: 600; font-size: 0.85rem; cursor: pointer; color: #fff;
+  display: inline-flex; align-items: center; gap: 0.4rem; border: none; border-radius: 9px;
+  padding: 0.55rem 0.95rem; font-weight: 600; font-size: 0.85rem; cursor: pointer; color: #fff;
   transition: filter 0.15s ease, transform 0.1s ease;
 }
 .btn-export:hover { filter: brightness(1.08); }
 .btn-export:active { transform: translateY(1px); }
 .btn-export-excel { background: var(--ok); }
-.btn-export-pdf { background: var(--bad); }
+.btn-export-pdf { background: var(--ink); }
 .fecha-pdf-input {
-  border: 1px solid var(--line); border-radius: 4px; padding: 0.45rem 0.5rem; font-family: var(--f-ui);
+  border: 1px solid var(--line); border-radius: 9px; padding: 0.45rem 0.5rem; font-family: var(--f-ui);
   background: var(--paper-soft); font-size: 0.82rem;
 }
 
 .empty-state {
-  background: var(--paper-soft); border: 1px dashed var(--line); border-radius: 6px;
+  background: var(--paper-soft); border: 1px dashed var(--line); border-radius: 14px;
   padding: 3.5rem 2rem; text-align: center; color: var(--ink-soft);
+  box-shadow: 0 1px 3px rgba(14,26,46,0.04);
 }
-.empty-mark { font-size: 2rem; color: var(--amber); margin-bottom: 0.5rem; font-family: var(--f-display); }
+.empty-mark { font-size: 2rem; color: var(--amber); margin-bottom: 0.5rem; font-family: var(--f-display); font-weight: 800; }
 .empty-state #verHistorialBtn { margin-top: 1rem; }
 
+/* ---------- Pantalla de bienvenida (paso obligatorio al entrar) ---------- */
+.onboarding-screen { text-align: left; padding: 2.2rem 2.5rem; border: 1px solid var(--line); border-style: solid; }
+.onboarding-header { text-align: center; margin-bottom: 1.8rem; }
+.onboarding-titulo { font-family: var(--f-display); font-weight: 800; font-size: 1.4rem; color: var(--ink); margin: 0.3rem 0 0.4rem; }
+.onboarding-sub { max-width: 560px; margin: 0 auto; color: var(--ink-soft); font-size: 0.9rem; line-height: 1.5; }
+
+.onboarding-pasos { display: grid; grid-template-columns: 1fr 1fr; gap: 1.3rem; margin-bottom: 1.6rem; }
+.onboarding-paso {
+  display: flex; gap: 0.9rem; background: var(--paper); border: 1px solid var(--line);
+  border-radius: 12px; padding: 1.2rem 1.3rem;
+}
+.onboarding-paso-numero {
+  width: 28px; height: 28px; border-radius: 50%; background: var(--ink); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem;
+  flex-shrink: 0;
+}
+.onboarding-paso-contenido { flex: 1; display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+.onboarding-paso-contenido h3 { margin: 0; font-family: var(--f-display); font-size: 1rem; font-weight: 700; color: var(--ink); }
+.onboarding-paso-contenido input[type="text"],
+.onboarding-paso-contenido input[type="url"],
+.onboarding-paso-contenido input[type="file"] {
+  padding: 0.5rem 0.6rem; border: 1px solid var(--line); border-radius: 9px; width: 100%;
+  background: var(--paper-soft); font-family: var(--f-ui); font-size: 0.85rem; color: var(--ink);
+}
+.onboarding-paso-contenido .eyebrow { color: var(--ink-soft); margin-top: 0.2rem; }
+.btn-onboarding-secundario { align-self: flex-start; }
+.rutas-estado-chip {
+  display: inline-block; font-size: 0.76rem; font-weight: 600; padding: 0.25rem 0.65rem;
+  border-radius: 999px; background: var(--warn-soft); color: #8A611A; width: fit-content;
+}
+.rutas-estado-chip.configurado { background: var(--ok-soft); color: #17693F; }
+
+.onboarding-siguiente { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; }
+.btn-siguiente { font-size: 0.95rem; padding: 0.8rem 1.8rem; }
+.onboarding-aviso { color: var(--bad); font-size: 0.82rem; font-weight: 600; }
+
+@media (max-width: 760px) {
+  .onboarding-pasos { grid-template-columns: 1fr; }
+  .onboarding-screen { padding: 1.6rem 1.2rem; }
+}
+
 .periodo-analizado {
-  font-family: var(--f-mono); font-size: 0.78rem; color: var(--ink-soft);
+  font-family: var(--f-ui); font-size: 0.82rem; color: var(--ink-soft);
   margin: 0 0 1.1rem;
 }
 
@@ -222,16 +277,16 @@ body {
 .multiselect { position: relative; margin-top: 0.25rem; }
 .multiselect-btn {
   width: 100%; text-align: left; padding: 0.5rem 0.6rem; border: 1px solid var(--line);
-  border-radius: 4px; background: var(--paper-soft); font-family: var(--f-ui); font-size: 0.85rem;
+  border-radius: 9px; background: var(--paper-soft); font-family: var(--f-ui); font-size: 0.85rem;
   cursor: pointer; color: var(--ink-soft); transition: border-color 0.15s ease;
 }
-.multiselect-btn:hover { border-color: var(--amber-deep); }
-.multiselect-btn.has-selection { color: var(--ink); font-weight: 600; border-color: var(--amber-deep); }
+.multiselect-btn:hover { border-color: var(--amber); }
+.multiselect-btn.has-selection { color: var(--ink); font-weight: 600; border-color: var(--amber); }
 .multiselect-btn::after { content: "▾"; float: right; color: var(--ink-soft); }
 .multiselect-panel {
   position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
-  background: white; border: 1px solid var(--line); border-radius: 4px;
-  max-height: 220px; overflow-y: auto; box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+  background: white; border: 1px solid var(--line); border-radius: 10px;
+  max-height: 220px; overflow-y: auto; box-shadow: 0 10px 24px rgba(14,26,46,0.12);
 }
 .ms-option {
   display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.6rem; font-size: 0.85rem;
@@ -241,31 +296,36 @@ body {
 .ms-empty { padding: 0.6rem; font-size: 0.8rem; }
 
 /* ---------- KPIs ---------- */
-.kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.9rem; margin-bottom: 1.2rem; }
+.kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem; margin-bottom: 1.3rem; }
 .kpi-stub {
-  background: var(--paper-soft); border-left: 4px solid var(--amber); padding: 0.9rem 1rem;
-  border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
-  border-radius: 0 6px 6px 0; box-shadow: 0 1px 2px rgba(23,25,28,0.04);
-  transition: box-shadow 0.15s ease, transform 0.1s ease;
+  background: var(--paper-soft); padding: 1.1rem 1.15rem 1rem; border: 1px solid var(--line);
+  border-top: 4px solid var(--kpi-azul-top); border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(14,26,46,0.05);
+  transition: box-shadow 0.15s ease;
 }
-.kpi-stub:hover { box-shadow: 0 3px 10px rgba(22,35,59,0.08); }
-.kpi-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
-.kpi-stub .kpi-label { font-family: var(--f-display); text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.75rem; color: var(--ink-soft); font-weight: 600; }
+.kpi-stub:nth-child(1) { border-top-color: var(--kpi-azul-top); }
+.kpi-stub:nth-child(2) { border-top-color: var(--kpi-verde-top); }
+.kpi-stub:nth-child(3) { border-top-color: var(--kpi-coral-top); }
+.kpi-stub:nth-child(4) { border-top-color: var(--kpi-oro-top); }
+.kpi-stub:nth-child(5) { border-top-color: var(--kpi-morado-top); }
+.kpi-stub:hover { box-shadow: 0 6px 16px rgba(14,26,46,0.09); }
+.kpi-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.6rem; }
+.kpi-stub .kpi-label { font-family: var(--f-ui); text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.72rem; color: var(--ink-soft); font-weight: 700; }
 .kpi-icono {
-  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
-  border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px;
+  border-radius: 11px; flex-shrink: 0;
 }
-.kpi-icono-neutro { background: #EEECE5; color: var(--ink-soft); }
-.kpi-icono-verde { background: var(--ok-soft); color: var(--ok); }
-.kpi-icono-rojo { background: var(--bad-soft); color: var(--bad); }
-.kpi-icono-ambar { background: var(--warn-soft); color: var(--warn); }
+.kpi-icono-neutro { background: var(--kpi-azul-bg); color: var(--kpi-azul-fg); }
+.kpi-icono-verde { background: var(--kpi-verde-bg); color: var(--kpi-verde-fg); }
+.kpi-icono-rojo { background: var(--kpi-coral-bg); color: var(--kpi-coral-fg); }
+.kpi-icono-ambar { background: var(--kpi-oro-bg); color: var(--kpi-oro-fg); }
 .kpi-stub .kpi-value {
-  font-family: var(--f-mono); font-size: 1.7rem; font-weight: 600; color: var(--ink); margin-top: 0.3rem;
-  line-height: 1.15; word-break: break-word;
+  font-family: var(--f-display); font-size: 1.85rem; font-weight: 800; color: var(--ink); margin-top: 0.15rem;
+  line-height: 1.15; word-break: break-word; letter-spacing: -0.015em;
 }
 .kpi-unidad { font-size: 0.85rem; font-weight: 500; color: var(--ink-soft); font-family: var(--f-ui); }
-.kpi-stub .kpi-value.valor-largo { font-size: 1.15rem; }
-.kpi-stub .kpi-desc { font-size: 0.74rem; color: var(--ink-soft); margin-top: 0.3rem; line-height: 1.3; }
+.kpi-stub .kpi-value.valor-largo { font-size: 1.25rem; }
+.kpi-stub .kpi-desc { font-size: 0.78rem; color: var(--ink-soft); margin-top: 0.35rem; line-height: 1.35; }
 
 .info-icon {
   display: inline-block; font-size: 0.75rem; color: var(--ink-soft); cursor: help;
@@ -274,36 +334,36 @@ body {
 }
 
 /* ---------- Atención requerida ---------- */
-.atencion-requerida { margin-bottom: 1.2rem; border-radius: 6px; padding: 0.8rem 1rem; }
-.atencion-requerida.atencion-alerta { background: var(--bad-soft); border: 1px solid #DEC3BC; }
+.atencion-requerida { margin-bottom: 1.3rem; border-radius: 14px; padding: 0.9rem 1.1rem; }
+.atencion-requerida.atencion-alerta { background: var(--bad-soft); border: 1px solid #F3C7C7; }
 .atencion-requerida.atencion-ok {
-  background: var(--ok-soft); border: 1px solid #BDD2C4; color: #2C5A44; font-weight: 600;
-  font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem;
+  background: var(--ok-soft); border: 1px solid #BFE6CE; color: #17693F; font-weight: 600;
+  font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1.1rem;
 }
 .atencion-check { color: var(--ok); }
 .atencion-titulo {
-  font-family: var(--f-display); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700;
-  font-size: 0.9rem; color: var(--bad); margin-bottom: 0.55rem;
+  font-family: var(--f-ui); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700;
+  font-size: 0.85rem; color: #B23838; margin-bottom: 0.6rem;
 }
-.atencion-total { color: #5E2C28; font-weight: 500; text-transform: none; letter-spacing: normal; }
+.atencion-total { color: #8A3E3E; font-weight: 500; text-transform: none; letter-spacing: normal; }
 .atencion-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .atencion-chip {
-  background: var(--paper-soft); border: 1px solid #DEC3BC; border-radius: 999px; padding: 0.3rem 0.75rem;
-  font-size: 0.78rem; color: #5E2C28; cursor: pointer; transition: background 0.15s ease;
+  background: var(--paper-soft); border: 1px solid #F3C7C7; border-radius: 999px; padding: 0.35rem 0.8rem;
+  font-size: 0.78rem; color: #8A3E3E; cursor: pointer; transition: background 0.15s ease;
 }
-.atencion-chip:hover { background: #F3E2DE; }
+.atencion-chip:hover { background: #FCEFEF; }
 .atencion-chip.activo { background: var(--bad); color: #fff; border-color: var(--bad); }
 .atencion-chip strong { font-family: var(--f-mono); }
 .atencion-quitar { background: var(--paper-soft); color: var(--ink-soft); border-color: var(--line); }
 
 /* ---------- Gráficos ---------- */
-.charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.2rem; }
+.charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.3rem; }
 .charts-grid-unica { grid-template-columns: 1fr; }
-.charts-grid-unica .chart-panel { height: 340px; }
+.charts-grid-unica .chart-panel { height: 360px; }
 .chart-panel {
-  background: var(--paper-soft); border: 1px solid var(--line); border-radius: 6px; padding: 1rem;
+  background: var(--paper-soft); border: 1px solid var(--line); border-radius: 14px; padding: 1.2rem;
   height: 300px; display: flex; flex-direction: column; position: relative;
-  box-shadow: 0 1px 2px rgba(23,25,28,0.04);
+  box-shadow: 0 1px 3px rgba(14,26,46,0.05);
   /* Los gráficos de ranking (cantidad y minutos de tardanza) sobreescriben esta
      altura con un valor inline en px (ver app.js) según su cantidad de barras;
      el resto de los gráficos usa esta altura fija. Sin un techo aquí, un
@@ -312,86 +372,86 @@ body {
      se estiraba cientos de píxeles hacia abajo). */
 }
 .chart-panel-wide { grid-column: 1 / -1; height: 340px; }
-.chart-panel h3 { margin: 0; }
-.chart-subtitle { margin: 0.15rem 0 0.6rem; font-size: 0.78rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--line); }
+.chart-panel h3 { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: 1rem; text-transform: none; letter-spacing: 0; color: var(--ink); }
+.chart-subtitle { margin: 0.2rem 0 0.7rem; font-size: 0.8rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--line); color: var(--ink-soft); }
 .chart-panel canvas { flex: 1; min-height: 0; }
-.chart-caption { margin: 0.5rem 0 0; font-size: 0.74rem; color: var(--ink-soft); text-align: center; }
+.chart-caption { margin: 0.5rem 0 0; font-size: 0.76rem; color: var(--ink-soft); text-align: center; }
 .chart-empty { margin: auto; text-align: center; }
 
-.detalle-tardanzas { background: var(--paper-soft); border: 1px solid var(--line); border-radius: 6px; padding: 0 1.2rem; margin-bottom: 1.2rem; }
-.detalle-tardanzas summary { cursor: pointer; padding: 0.9rem 0; list-style: none; }
+.detalle-tardanzas { background: var(--paper-soft); border: 1px solid var(--line); border-radius: 14px; padding: 0 1.3rem; margin-bottom: 1.3rem; box-shadow: 0 1px 3px rgba(14,26,46,0.05); }
+.detalle-tardanzas summary { cursor: pointer; padding: 1rem 0; list-style: none; font-family: var(--f-display); font-weight: 700; text-transform: none; letter-spacing: 0; font-size: 0.95rem; color: var(--ink); }
 .detalle-tardanzas summary::-webkit-details-marker { display: none; }
 .detalle-tardanzas[open] summary { border-bottom: 1px solid var(--line); }
 .chart-panel-detalle { height: 280px; border: none; padding: 1rem 0; box-shadow: none; }
 
 /* ---------- Tabla / auditoría ---------- */
 .ledger-section {
-  background: var(--paper-soft); border: 1px solid var(--line); border-radius: 6px; padding: 1.2rem 1.3rem;
-  margin-bottom: 1.2rem;
+  background: var(--paper-soft); border: 1px solid var(--line); border-radius: 14px; padding: 1.3rem 1.4rem;
+  margin-bottom: 1.3rem; box-shadow: 0 1px 3px rgba(14,26,46,0.05);
 }
-.ledger-section h2 { margin: 0 0 0.9rem; padding-bottom: 0.6rem; border-bottom: 2px solid var(--ink); }
+.ledger-section h2 { margin: 0 0 1rem; padding-bottom: 0.7rem; border-bottom: 1px solid var(--line); font-family: var(--f-display); font-weight: 700; font-size: 1.05rem; text-transform: none; letter-spacing: 0; color: var(--ink); }
 
 .toolbar-auditoria {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; margin-bottom: 1rem;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.9rem; margin-bottom: 1.1rem;
 }
 .toolbar-auditoria .filter-item-buscar { grid-column: span 2; }
 .rango-fechas { display: flex; align-items: flex-end; gap: 0.4rem; margin-top: 0.25rem; }
 .rango-fechas-campo { flex: 1; display: flex; flex-direction: column; }
-.rango-fechas-sub { font-size: 0.68rem; color: var(--ink-soft); margin-bottom: 0.1rem; }
+.rango-fechas-sub { font-size: 0.68rem; color: var(--ink-soft); margin-bottom: 0.15rem; }
 .rango-fechas-campo input { margin-top: 0 !important; }
 .rango-fechas-separador { color: var(--ink-soft); padding-bottom: 0.55rem; }
 .filter-item select, .filter-item input {
-  width: 100%; padding: 0.5rem; border: 1px solid var(--line); border-radius: 4px;
+  width: 100%; padding: 0.5rem 0.6rem; border: 1px solid var(--line); border-radius: 9px;
   background: var(--paper-soft); font-family: var(--f-ui); margin-top: 0.25rem;
 }
 .filter-actions { display: flex; flex-direction: column; justify-content: flex-end; }
 .btn-small { padding: 0.5rem 0.7rem; font-size: 0.8rem; margin-top: 0.25rem; }
 
-.table-wrap { overflow-x: auto; max-height: 480px; overflow-y: auto; border-radius: 4px; }
+.table-wrap { overflow-x: auto; max-height: 480px; overflow-y: auto; border-radius: 10px; }
 table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 th {
-  font-family: var(--f-display); text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.75rem;
-  color: var(--ink-soft); text-align: left; padding: 0.5rem 0.7rem; border-bottom: 2px solid var(--ink);
-  position: sticky; top: 0; background: var(--paper-soft); white-space: nowrap; z-index: 1;
+  font-family: var(--f-ui); text-transform: uppercase; letter-spacing: 0.03em; font-size: 0.72rem;
+  color: var(--ink-soft); text-align: left; padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; background: var(--paper-soft); white-space: nowrap; z-index: 1; font-weight: 700;
 }
-td { padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .td-nombre { font-weight: 600; min-width: 150px; }
 .td-expandible { cursor: pointer; user-select: none; }
-.td-expandible:hover { background: #f2f0ea; }
-.expand-icono { display: inline-block; width: 1em; color: var(--amber-deep); font-size: 0.8em; margin-right: 0.15rem; }
-.th-sticky { position: sticky; left: 0; z-index: 2; background: var(--paper-soft); box-shadow: 2px 0 4px rgba(0,0,0,0.05); }
+.td-expandible:hover { background: #F7F8FA; }
+.expand-icono { display: inline-block; width: 1em; color: var(--amber); font-size: 0.8em; margin-right: 0.15rem; }
+.th-sticky { position: sticky; left: 0; z-index: 2; background: var(--paper-soft); box-shadow: 2px 0 4px rgba(0,0,0,0.04); }
 th.th-sticky { z-index: 3; }
 .num { text-align: right; }
-tr.fila-exceso td { background: #F4EDDB; }
+tr.fila-exceso td { background: #FCF4E5; }
 tr.fila-inconsistente td:first-child { border-left: 3px solid var(--bad); }
 .exceso { color: var(--bad); font-weight: 600; }
 
 .tag {
   display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.76rem; font-weight: 600;
-  padding: 0.15rem 0.5rem; border-radius: 999px; font-family: var(--f-ui);
+  padding: 0.2rem 0.6rem; border-radius: 999px; font-family: var(--f-ui);
 }
-.tag-verde { background: var(--ok-soft); color: #2C5A44; }
-.tag-ambar { background: var(--warn-soft); color: #6B551F; }
-.tag-rojo { background: var(--bad-soft); color: #5E2C28; }
-.tag-gris { background: #EDEDEA; color: var(--gris-tag); }
+.tag-verde { background: var(--ok-soft); color: #17693F; }
+.tag-ambar { background: var(--warn-soft); color: #8A611A; }
+.tag-rojo { background: var(--bad-soft); color: #B23838; }
+.tag-gris { background: #EEF0F3; color: var(--gris-tag); }
 
 /* Resumen compacto de ruta en la celda de la tabla (el detalle completo va
    en el desplegable, ver .fila-detalle-ruta más abajo) */
-.ruta-strip { display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: nowrap; }
+.ruta-strip { display: inline-flex; align-items: center; gap: 0.3rem; flex-wrap: nowrap; }
 .ruta-chip {
   font-family: var(--f-mono); font-size: 0.72rem; font-weight: 600; color: var(--ink);
-  background: #EEECE5; padding: 0.05rem 0.35rem; border-radius: 3px;
+  background: #EEF0F3; padding: 0.1rem 0.45rem; border-radius: 6px;
 }
 .ruta-count { font-family: var(--f-mono); font-size: 0.72rem; color: var(--ink-soft); margin-left: 0.2rem; }
 
 /* Desplegable de "Ruta del día" al tocar el nombre del colaborador */
-.fila-detalle-ruta td { background: #FAF9F5; padding: 0.8rem 1rem 1rem 2.2rem; white-space: normal; }
+.fila-detalle-ruta td { background: #FAFBFC; padding: 0.9rem 1rem 1.1rem 2.2rem; white-space: normal; }
 .detalle-ruta-tabla { width: 100%; max-width: 560px; border-collapse: collapse; font-size: 0.82rem; }
 .detalle-ruta-tabla th {
-  position: static; text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--line);
+  position: static; text-align: left; padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--line);
   font-size: 0.7rem; background: transparent;
 }
-.detalle-ruta-tabla td { padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.detalle-ruta-tabla td { padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .detalle-check { text-align: center; }
 .check-ok { color: var(--ok); font-weight: 700; }
 .check-no { color: var(--bad); font-weight: 700; }
@@ -399,14 +459,14 @@ tr.fila-inconsistente td:first-child { border-left: 3px solid var(--bad); }
 /* ---------- Paginación ---------- */
 .paginacion-bar {
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem;
-  margin-top: 0.8rem; font-size: 0.8rem; color: var(--ink-soft);
+  margin-top: 0.9rem; font-size: 0.8rem; color: var(--ink-soft);
 }
 .paginacion-controles { display: flex; align-items: center; gap: 0.5rem; }
-.paginacion-controles select { padding: 0.3rem 0.4rem; border: 1px solid var(--line); border-radius: 4px; }
+.paginacion-controles select { padding: 0.3rem 0.4rem; border: 1px solid var(--line); border-radius: 7px; }
 .paginacion-botones { display: flex; align-items: center; gap: 0.25rem; }
 .pg-btn {
   min-width: 28px; height: 28px; border: 1px solid var(--line); background: var(--paper-soft);
-  border-radius: 4px; cursor: pointer; font-family: var(--f-mono); font-size: 0.78rem;
+  border-radius: 7px; cursor: pointer; font-family: var(--f-mono); font-size: 0.78rem;
   transition: background 0.15s ease;
 }
 .pg-btn:hover:not(:disabled) { background: var(--paper); }
@@ -568,10 +628,60 @@ tr.fila-inconsistente td:first-child { border-left: 3px solid var(--bad); }
       </div>
     </header>
 
-    <div id="emptyState" class="empty-state">
-      <div class="empty-mark">＋</div>
-      <p id="emptyStateTexto">Carga tu primer Excel mensual desde <strong>01 — Cargar datos</strong> para empezar.</p>
-      <button id="verHistorialBtn" class="btn-flag hidden">Ver historial guardado</button>
+    <div id="emptyState" class="empty-state onboarding-screen">
+      <div class="onboarding-header">
+        <div class="empty-mark">＋</div>
+        <h2 class="onboarding-titulo">Antes de empezar</h2>
+        <p id="emptyStateTexto" class="onboarding-sub">Subí el Excel de marcaciones del mes y confirmá la hoja de rutas asignadas. Este paso aparece cada vez que abrís el tablero, para asegurar que estés viendo datos actualizados.</p>
+      </div>
+
+      <div class="onboarding-pasos">
+        <div class="onboarding-paso">
+          <div class="onboarding-paso-numero">1</div>
+          <div class="onboarding-paso-contenido">
+            <h3>Subir Excel de marcaciones</h3>
+            <p class="muted small">El reporte mensual que exporta el sistema (entradas, salidas, PDV visitados).</p>
+            <input type="file" id="fileInputOnboarding" accept=".xlsx" aria-label="Seleccionar archivo Excel de marcaciones" />
+            <label class="eyebrow">Período (opcional)</label>
+            <input type="text" id="periodoManualOnboarding" placeholder="AAAA-MM" />
+            <button id="procesarBtnOnboarding" class="btn-flag" disabled>Procesar Excel</button>
+            <div class="upload-status-row">
+              <span id="uploadSpinnerOnboarding" class="spinner hidden" aria-hidden="true"></span>
+              <div id="uploadStatusOnboarding" class="status-msg" role="status"></div>
+            </div>
+            <div id="uploadResumenOnboarding" class="upload-resumen hidden"></div>
+          </div>
+        </div>
+
+        <div class="onboarding-paso">
+          <div class="onboarding-paso-numero">2</div>
+          <div class="onboarding-paso-contenido">
+            <h3>Rutas asignadas <span class="muted small">(opcional)</span></h3>
+            <p class="muted small">Se configura una sola vez — a partir de ahí se sincroniza sola. Si ya la configuraste, no hace falta que hagas nada acá.</p>
+            <div id="rutasEstadoOnboarding" class="rutas-estado-chip">Sin configurar todavía</div>
+            <label class="eyebrow">Enlace de Google Sheets (CSV publicado)</label>
+            <input type="url" id="rutasSheetUrlOnboarding" placeholder="https://docs.google.com/spreadsheets/.../pub?output=csv" />
+            <label class="small" style="display:flex; align-items:center; gap:0.4rem;">
+              <input type="checkbox" id="rutasAutoSyncOnboarding" style="width:auto;" />
+              Sincronizar automáticamente al procesar cada Excel
+            </label>
+            <button id="sincronizarRutasBtnOnboarding" class="btn-ghost btn-onboarding-secundario">Sincronizar ahora</button>
+            <div id="rutasSyncStatusOnboarding" class="status-msg" role="status"></div>
+            <div id="rutasSyncInfoOnboarding" class="small muted"></div>
+
+            <div class="rail-divider">o subí un archivo manualmente</div>
+            <input type="file" id="fileInputRutasOnboarding" accept=".xlsx" aria-label="Seleccionar archivo de rutas asignadas" />
+            <button id="procesarRutasBtnOnboarding" class="btn-ghost btn-onboarding-secundario" disabled>Cargar archivo de rutas</button>
+            <div id="rutasStatusOnboarding" class="status-msg" role="status"></div>
+            <div id="rutasResumenOnboarding" class="upload-resumen hidden"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="onboarding-siguiente">
+        <div id="onboardingAviso" class="onboarding-aviso hidden"></div>
+        <button id="siguienteOnboardingBtn" class="btn-flag btn-siguiente">Siguiente — ir al tablero →</button>
+      </div>
     </div>
 
     <div id="dashboardContent" class="hidden">
@@ -1893,7 +2003,7 @@ function exportarExcelConsolidado(resumenes, marcaciones, etiquetaPeriodo, meta)
 function exportarPdfResumenDiario(registrosDelDia, fecha, limiteDescanso) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "cm", format: "letter" });
-  const azul = [22, 35, 59]; // #16233B, ink navy ejecutivo
+  const azul = [14, 26, 46]; // #0E1A2E, ink navy
   const [y, m, d] = fecha.split("-");
 
   doc.setFontSize(16);
@@ -1958,11 +2068,11 @@ function exportarPdfResumenDiario(registrosDelDia, fecha, limiteDescanso) {
       const row = ordenados[data.row.index];
       if (!row) return;
       if (row.clasificacion_puntualidad === ESTADOS.SUPERVISAR || row.tiene_marcacion_abierta) {
-        data.cell.styles.fillColor = [239, 222, 218]; // #EFDEDA, bad-soft
+        data.cell.styles.fillColor = [251, 228, 228]; // #FBE4E4, bad-soft
       } else if (row.clasificacion_puntualidad === ESTADOS.LEVE || row.alerta_exceso_descanso) {
-        data.cell.styles.fillColor = [239, 231, 211]; // #EFE7D3, warn-soft
+        data.cell.styles.fillColor = [251, 238, 221]; // #FBEEDD, warn-soft
       } else if (row.clasificacion_puntualidad === ESTADOS.PUNTUAL) {
-        data.cell.styles.fillColor = [228, 236, 230]; // #E4ECE6, ok-soft
+        data.cell.styles.fillColor = [225, 243, 232]; // #E1F3E8, ok-soft
       }
     },
   });
@@ -1975,7 +2085,7 @@ function exportarPdfResumenDiario(registrosDelDia, fecha, limiteDescanso) {
       head: [["Inconsistencias detectadas (no se eliminan, quedan marcadas para revisión)"]],
       body: conInconsistencia.map((r) => [`${r.nombre}: ${(r.inconsistencias || []).join("; ")}`]),
       theme: "grid",
-      headStyles: { fillColor: [123, 59, 54], fontSize: 8 }, // #7B3B36, bad ejecutivo
+      headStyles: { fillColor: [210, 75, 75], fontSize: 8 }, // #D24B4B, bad
       bodyStyles: { fontSize: 7.5 },
       margin: { left: 1.2, right: 1.2 },
     });
@@ -2226,6 +2336,7 @@ document.getElementById("borrarDatosBtn").addEventListener("click", async () => 
 // INGESTA DE EXCEL
 // ---------------------------------------------------------------------------
 let archivoSeleccionado = null;
+let archivoSeleccionadoOnboarding = null;
 
 document.getElementById("fileInput").addEventListener("change", (e) => {
   archivoSeleccionado = e.target.files[0] || null;
@@ -2233,18 +2344,47 @@ document.getElementById("fileInput").addEventListener("change", (e) => {
   document.getElementById("uploadResumen").classList.add("hidden");
 });
 
-document.getElementById("procesarBtn").addEventListener("click", async () => {
-  if (!archivoSeleccionado) return;
-  const statusEl = document.getElementById("uploadStatus");
-  const spinnerEl = document.getElementById("uploadSpinner");
-  const resumenEl = document.getElementById("uploadResumen");
+document.getElementById("fileInputOnboarding").addEventListener("change", (e) => {
+  archivoSeleccionadoOnboarding = e.target.files[0] || null;
+  document.getElementById("procesarBtnOnboarding").disabled = !archivoSeleccionadoOnboarding;
+  document.getElementById("uploadResumenOnboarding").classList.add("hidden");
+});
+
+document.getElementById("procesarBtn").addEventListener("click", () =>
+  procesarExcelCompartido(archivoSeleccionado, {
+    periodoManualId: "periodoManual",
+    statusId: "uploadStatus",
+    spinnerId: "uploadSpinner",
+    resumenId: "uploadResumen",
+  })
+);
+
+document.getElementById("procesarBtnOnboarding").addEventListener("click", () =>
+  procesarExcelCompartido(archivoSeleccionadoOnboarding, {
+    periodoManualId: "periodoManualOnboarding",
+    statusId: "uploadStatusOnboarding",
+    spinnerId: "uploadSpinnerOnboarding",
+    resumenId: "uploadResumenOnboarding",
+  })
+);
+
+// Lógica de procesamiento del Excel de marcaciones, compartida entre el
+// panel lateral "01 — Cargar datos" y la pantalla de bienvenida (paso
+// obligatorio al entrar). Ambos llaman a esta misma función — nunca hay una
+// segunda copia de las reglas de negocio, solo cambian los elementos de UI
+// que se actualizan.
+async function procesarExcelCompartido(archivo, ui) {
+  if (!archivo) return;
+  const statusEl = document.getElementById(ui.statusId);
+  const spinnerEl = document.getElementById(ui.spinnerId);
+  const resumenEl = document.getElementById(ui.resumenId);
   statusEl.textContent = "Leyendo y procesando archivo...";
   statusEl.className = "status-msg";
   spinnerEl.classList.remove("hidden");
   resumenEl.classList.add("hidden");
 
   try {
-    const arrayBuffer = await archivoSeleccionado.arrayBuffer();
+    const arrayBuffer = await archivo.arrayBuffer();
     const { filas, meta } = leerYLimpiarExcel(arrayBuffer);
     if (!filas.length) {
       throw new Error(
@@ -2254,7 +2394,7 @@ document.getElementById("procesarBtn").addEventListener("click", async () => {
       );
     }
 
-    const periodoManual = document.getElementById("periodoManual").value.trim();
+    const periodoManual = document.getElementById(ui.periodoManualId).value.trim();
     const periodo = periodoManual || detectarPeriodo(filas);
 
     // 1) Upsert de empleados (catálogo maestro)
@@ -2291,7 +2431,7 @@ document.getElementById("procesarBtn").addEventListener("click", async () => {
     const cfgSync = await dbGetAll("configuracion");
     const autoSyncActivo = cfgSync.find((c) => c.clave === "rutas_auto_sync")?.valor === "1";
     if (autoSyncActivo) {
-      await sincronizarRutasDesdeGoogleSheets(true);
+      await sincronizarRutasCompartido(true, { urlId: "rutasSheetUrl", statusId: "rutasSyncStatus", infoId: "rutasSyncInfo", resumenId: "rutasResumen" });
     }
 
     // 3b) Aplicar cumplimiento de ruta asignada, si hay un catálogo cargado
@@ -2317,7 +2457,7 @@ document.getElementById("procesarBtn").addEventListener("click", async () => {
     //    historial de procesos en la barra lateral)
     await dbPut("periodos_cargados", {
       periodo,
-      nombre_archivo_original: archivoSeleccionado.name,
+      nombre_archivo_original: archivo.name,
       filas_procesadas: marcacionesInsert.length,
       empleados_afectados: empleadosUnicos.length,
       fecha_carga: new Date().toISOString(),
@@ -2336,7 +2476,7 @@ document.getElementById("procesarBtn").addEventListener("click", async () => {
 
     resumenEl.classList.remove("hidden");
     resumenEl.innerHTML = `
-      <div class="ur-item"><span>Archivo</span><strong>${archivoSeleccionado.name}</strong></div>
+      <div class="ur-item"><span>Archivo</span><strong>${archivo.name}</strong></div>
       <div class="ur-item"><span>Filas procesadas</span><strong>${filas.length}</strong></div>
       <div class="ur-item"><span>Colaboradores detectados</span><strong>${empleadosUnicos.length}</strong></div>
       <div class="ur-item"><span>Fecha inicial</span><strong>${fechaLegible(fechas[0])}</strong></div>
@@ -2346,14 +2486,18 @@ document.getElementById("procesarBtn").addEventListener("click", async () => {
       ${advertencias.length ? `<div class="ur-warn">⚠ ${advertencias.join(" · ")}</div>` : ""}
     `;
 
-    await refrescarPeriodosYVista(periodo);
+    // Refresca la lista de períodos y el historial, pero NO muestra el
+    // dashboard automáticamente — eso solo pasa al pulsar "Siguiente" en la
+    // pantalla de bienvenida (paso obligatorio, confirmado con el usuario).
+    await refrescarListaDePeriodos();
+    limpiarAvisoOnboarding();
   } catch (err) {
     statusEl.textContent = "Error: " + err.message;
     statusEl.classList.add("error");
   } finally {
     spinnerEl.classList.add("hidden");
   }
-});
+}
 
 async function guardarResumenes(periodo, resumenes) {
   await dbDeleteByIndex("asistencia_resumen_diario", "periodo", periodo);
@@ -2364,6 +2508,7 @@ async function guardarResumenes(periodo, resumenes) {
 // INGESTA DEL CATÁLOGO DE RUTAS ASIGNADAS (archivo aparte, no cambia mes a mes)
 // ---------------------------------------------------------------------------
 let archivoRutasSeleccionado = null;
+let archivoRutasSeleccionadoOnboarding = null;
 
 document.getElementById("fileInputRutas").addEventListener("change", (e) => {
   archivoRutasSeleccionado = e.target.files[0] || null;
@@ -2371,25 +2516,38 @@ document.getElementById("fileInputRutas").addEventListener("change", (e) => {
   document.getElementById("rutasResumen").classList.add("hidden");
 });
 
-document.getElementById("procesarRutasBtn").addEventListener("click", async () => {
-  if (!archivoRutasSeleccionado) return;
-  const statusEl = document.getElementById("rutasStatus");
-  const resumenEl = document.getElementById("rutasResumen");
+document.getElementById("fileInputRutasOnboarding").addEventListener("change", (e) => {
+  archivoRutasSeleccionadoOnboarding = e.target.files[0] || null;
+  document.getElementById("procesarRutasBtnOnboarding").disabled = !archivoRutasSeleccionadoOnboarding;
+  document.getElementById("rutasResumenOnboarding").classList.add("hidden");
+});
+
+document.getElementById("procesarRutasBtn").addEventListener("click", () =>
+  procesarArchivoRutasCompartido(archivoRutasSeleccionado, { statusId: "rutasStatus", resumenId: "rutasResumen" })
+);
+document.getElementById("procesarRutasBtnOnboarding").addEventListener("click", () =>
+  procesarArchivoRutasCompartido(archivoRutasSeleccionadoOnboarding, { statusId: "rutasStatusOnboarding", resumenId: "rutasResumenOnboarding" })
+);
+
+async function procesarArchivoRutasCompartido(archivo, ui) {
+  if (!archivo) return;
+  const statusEl = document.getElementById(ui.statusId);
+  const resumenEl = document.getElementById(ui.resumenId);
   statusEl.textContent = "Leyendo archivo de rutas...";
   statusEl.className = "status-msg";
   resumenEl.classList.add("hidden");
 
   try {
-    const arrayBuffer = await archivoRutasSeleccionado.arrayBuffer();
+    const arrayBuffer = await archivo.arrayBuffer();
     const { asignaciones, meta } = leerRutasAsignadas(arrayBuffer);
-    await guardarAsignacionesYRecalcular(asignaciones, meta, archivoRutasSeleccionado.name, resumenEl);
+    await guardarAsignacionesYRecalcular(asignaciones, meta, archivo.name, resumenEl);
     statusEl.textContent = "Rutas cargadas correctamente.";
     statusEl.classList.add("ok");
   } catch (err) {
     statusEl.textContent = "Error: " + err.message;
     statusEl.classList.add("error");
   }
-});
+}
 
 // Lógica compartida entre "cargar archivo manual" y "sincronizar en vivo":
 // guarda el catálogo de rutas en IndexedDB y recalcula todo el histórico.
@@ -2413,6 +2571,8 @@ async function guardarAsignacionesYRecalcular(asignaciones, meta, nombreOrigen, 
     `;
   }
 
+  actualizarChipEstadoRutas();
+
   // Recalcular todo el histórico ya cargado con el nuevo catálogo de rutas
   await recalcularTodoElHistorico();
   const dashboardYaVisible = !document.getElementById("dashboardContent").classList.contains("hidden");
@@ -2427,42 +2587,81 @@ async function guardarAsignacionesYRecalcular(asignaciones, meta, nombreOrigen, 
 // específica → formato CSV → copiar enlace). Google sirve ese endpoint con
 // cabeceras CORS abiertas, así que se puede leer directo desde el navegador
 // sin backend propio.
-document.getElementById("rutasSheetUrl").addEventListener("change", async (e) => {
-  await dbPutMany("configuracion", [{ clave: "rutas_sheet_url", valor: e.target.value.trim() }]);
-});
-document.getElementById("rutasAutoSync").addEventListener("change", async (e) => {
-  await dbPutMany("configuracion", [{ clave: "rutas_auto_sync", valor: e.target.checked ? "1" : "0" }]);
-});
+
+// Guarda la URL en config y mantiene sincronizados los DOS campos donde
+// puede vivir (barra lateral y pantalla de bienvenida) — cambiar cualquiera
+// de los dos actualiza el mismo valor guardado.
+async function guardarUrlRutas(valor) {
+  await dbPutMany("configuracion", [{ clave: "rutas_sheet_url", valor: valor.trim() }]);
+  document.getElementById("rutasSheetUrl").value = valor.trim();
+  document.getElementById("rutasSheetUrlOnboarding").value = valor.trim();
+  actualizarChipEstadoRutas();
+}
+document.getElementById("rutasSheetUrl").addEventListener("change", (e) => guardarUrlRutas(e.target.value));
+document.getElementById("rutasSheetUrlOnboarding").addEventListener("change", (e) => guardarUrlRutas(e.target.value));
+
+async function guardarAutoSyncRutas(activo) {
+  await dbPutMany("configuracion", [{ clave: "rutas_auto_sync", valor: activo ? "1" : "0" }]);
+  document.getElementById("rutasAutoSync").checked = activo;
+  document.getElementById("rutasAutoSyncOnboarding").checked = activo;
+}
+document.getElementById("rutasAutoSync").addEventListener("change", (e) => guardarAutoSyncRutas(e.target.checked));
+document.getElementById("rutasAutoSyncOnboarding").addEventListener("change", (e) => guardarAutoSyncRutas(e.target.checked));
+
+// Chip visual ("Sin configurar todavía" / "✓ Configurado") en la pantalla
+// de bienvenida, reflejando datos reales de IndexedDB — nunca información
+// inventada.
+async function actualizarChipEstadoRutas() {
+  const chip = document.getElementById("rutasEstadoOnboarding");
+  if (!chip) return;
+  const asignaciones = await dbGetAll("rutas_asignadas");
+  if (asignaciones.length) {
+    chip.textContent = `✓ Configurado — ${asignaciones.length} fila(s) de ruta`;
+    chip.classList.add("configurado");
+  } else {
+    chip.textContent = "Sin configurar todavía";
+    chip.classList.remove("configurado");
+  }
+}
+
+function textoUltimaSync(fechaISO) {
+  const fecha = new Date(fechaISO);
+  return `Última sincronización: ${fecha.toLocaleDateString("es-ES")} ${fecha.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`;
+}
 
 async function poblarPanelSincronizacionRutas() {
   const filas = await dbGetAll("configuracion");
   const cfg = {};
   filas.forEach((row) => (cfg[row.clave] = row.valor));
   document.getElementById("rutasSheetUrl").value = cfg.rutas_sheet_url || "";
+  document.getElementById("rutasSheetUrlOnboarding").value = cfg.rutas_sheet_url || "";
   document.getElementById("rutasAutoSync").checked = cfg.rutas_auto_sync === "1";
+  document.getElementById("rutasAutoSyncOnboarding").checked = cfg.rutas_auto_sync === "1";
   if (cfg.rutas_ultima_sincronizacion) {
-    const fecha = new Date(cfg.rutas_ultima_sincronizacion);
-    document.getElementById("rutasSyncInfo").textContent =
-      `Última sincronización: ${fecha.toLocaleDateString("es-ES")} ${fecha.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`;
+    document.getElementById("rutasSyncInfo").textContent = textoUltimaSync(cfg.rutas_ultima_sincronizacion);
+    document.getElementById("rutasSyncInfoOnboarding").textContent = textoUltimaSync(cfg.rutas_ultima_sincronizacion);
   }
+  await actualizarChipEstadoRutas();
 }
 
 /**
  * Descarga la hoja de rutas publicada en Google Sheets (CSV) y actualiza el
- * catálogo local. Se usa tanto para el botón "Sincronizar ahora" como para
- * la sincronización automática al procesar un Excel de marcaciones.
+ * catálogo local. Se usa tanto para los botones "Sincronizar ahora" (barra
+ * lateral y pantalla de bienvenida) como para la sincronización automática
+ * al procesar un Excel de marcaciones.
  * @param {boolean} silencioso - si es true, no interrumpe con errores
  *   visibles (usado en la sincronización automática, best-effort).
+ * @param {Object} ui - { urlId, statusId, infoId, resumenId }
  */
-async function sincronizarRutasDesdeGoogleSheets(silencioso = false) {
-  const url = document.getElementById("rutasSheetUrl").value.trim();
+async function sincronizarRutasCompartido(silencioso, ui) {
+  const url = document.getElementById(ui.urlId).value.trim();
   if (!url) {
     if (!silencioso) throw new Error("Pegá primero el enlace de Google Sheets (CSV).");
     return false;
   }
 
-  const statusEl = document.getElementById("rutasSyncStatus");
-  const resumenEl = document.getElementById("rutasResumen");
+  const statusEl = document.getElementById(ui.statusId);
+  const resumenEl = document.getElementById(ui.resumenId);
   if (!silencioso) {
     statusEl.textContent = "Descargando desde Google Sheets...";
     statusEl.className = "status-msg";
@@ -2481,8 +2680,8 @@ async function sincronizarRutasDesdeGoogleSheets(silencioso = false) {
 
     const ahora = new Date().toISOString();
     await dbPutMany("configuracion", [{ clave: "rutas_ultima_sincronizacion", valor: ahora }]);
-    document.getElementById("rutasSyncInfo").textContent =
-      `Última sincronización: ${new Date(ahora).toLocaleDateString("es-ES")} ${new Date(ahora).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`;
+    document.getElementById("rutasSyncInfo").textContent = textoUltimaSync(ahora);
+    document.getElementById("rutasSyncInfoOnboarding").textContent = textoUltimaSync(ahora);
 
     if (!silencioso) {
       statusEl.textContent = "Sincronizado correctamente.";
@@ -2507,7 +2706,12 @@ async function sincronizarRutasDesdeGoogleSheets(silencioso = false) {
   }
 }
 
-document.getElementById("sincronizarRutasBtn").addEventListener("click", () => sincronizarRutasDesdeGoogleSheets(false));
+document.getElementById("sincronizarRutasBtn").addEventListener("click", () =>
+  sincronizarRutasCompartido(false, { urlId: "rutasSheetUrl", statusId: "rutasSyncStatus", infoId: "rutasSyncInfo", resumenId: "rutasResumen" })
+);
+document.getElementById("sincronizarRutasBtnOnboarding").addEventListener("click", () =>
+  sincronizarRutasCompartido(false, { urlId: "rutasSheetUrlOnboarding", statusId: "rutasSyncStatusOnboarding", infoId: "rutasSyncInfoOnboarding", resumenId: "rutasResumenOnboarding" })
+);
 
 // ---------------------------------------------------------------------------
 // SELECTOR DE PERÍODO
@@ -2600,14 +2804,12 @@ async function refrescarListaDePeriodos() {
 
 function actualizarEmptyState() {
   const textoEl = document.getElementById("emptyStateTexto");
-  const botonEl = document.getElementById("verHistorialBtn");
   if (periodosDisponibles.length) {
     textoEl.innerHTML =
-      "Ya tienes datos guardados en este navegador de cargas anteriores. Sube un Excel nuevo, elige un período en <strong>03 — Período</strong>, o pulsa el botón para verlos.";
-    botonEl.classList.remove("hidden");
+      "Ya tenés datos guardados en este navegador. Si no necesitás subir nada nuevo, pulsá <strong>Siguiente</strong> para ir directo al tablero.";
   } else {
-    textoEl.innerHTML = "Carga tu primer Excel mensual desde <strong>01 — Cargar datos</strong> para empezar.";
-    botonEl.classList.add("hidden");
+    textoEl.innerHTML =
+      "Todavía no cargaste ningún mes en este navegador. Subí tu primer Excel para continuar.";
   }
 }
 
@@ -2657,8 +2859,24 @@ function renderHistorialProcesos() {
 
 document.getElementById("actualizarHistorialBtn")?.addEventListener("click", refrescarListaDePeriodos);
 
-document.getElementById("verHistorialBtn").addEventListener("click", () => {
-  mostrarDashboard();
+// "Siguiente" es el paso obligatorio de la pantalla de bienvenida: si no hay
+// ningún período cargado todavía, no tiene sentido pasar al tablero (no
+// habría nada que ver), así que se avisa en vez de navegar en silencio.
+function limpiarAvisoOnboarding() {
+  const aviso = document.getElementById("onboardingAviso");
+  aviso.classList.add("hidden");
+  aviso.textContent = "";
+}
+
+document.getElementById("siguienteOnboardingBtn").addEventListener("click", async () => {
+  if (!periodosDisponibles.length) {
+    const aviso = document.getElementById("onboardingAviso");
+    aviso.textContent = "Subí al menos un Excel de marcaciones antes de continuar.";
+    aviso.classList.remove("hidden");
+    return;
+  }
+  limpiarAvisoOnboarding();
+  await mostrarDashboard();
 });
 
 async function refrescarPeriodosYVista(periodoAEnfocar) {
@@ -3007,7 +3225,7 @@ const pluginValorAlFinal = {
         if (valor === undefined || valor === null) return;
         ctx.save();
         ctx.font = "600 11px " + FUENTE_MONO;
-        ctx.fillStyle = "#16233B";
+        ctx.fillStyle = "#0E1A2E";
         ctx.textBaseline = "middle";
         if (chart.options.indexAxis === "y") {
           ctx.textAlign = "left";
@@ -3042,7 +3260,7 @@ function renderRanking(df) {
     type: "bar",
     data: {
       labels: entradas.map((e) => e[0]),
-      datasets: [{ label: "Cantidad de tardanzas", data: entradas.map((e) => e[1].total), backgroundColor: "#7B3B36", borderRadius: 2, barThickness: 16 }],
+      datasets: [{ label: "Cantidad de tardanzas", data: entradas.map((e) => e[1].total), backgroundColor: "#D24B4B", borderRadius: 2, barThickness: 16 }],
     },
     plugins: [pluginValorAlFinal],
     options: {
@@ -3070,7 +3288,7 @@ function renderRanking(df) {
         x: {
           title: { display: true, text: "Cantidad de tardanzas (número de eventos)", font: { family: FUENTE_UI, size: 10 } },
           ticks: { font: { family: FUENTE_UI, size: 11 }, precision: 0, stepSize: 1 },
-          grid: { color: "#DEDAD0" },
+          grid: { color: "#E4E6EC" },
         },
         y: { ticks: { font: { family: FUENTE_UI, size: 11 }, autoSkip: false }, grid: { display: false } },
       },
@@ -3096,7 +3314,7 @@ function renderMinutosTardanza(df) {
     type: "bar",
     data: {
       labels: entradas.map((e) => e[0]),
-      datasets: [{ label: "Minutos acumulados", data: entradas.map((e) => e[1].minutos), backgroundColor: "#9C7A34", borderRadius: 2, barThickness: 16 }],
+      datasets: [{ label: "Minutos acumulados", data: entradas.map((e) => e[1].minutos), backgroundColor: "#3B79D1", borderRadius: 2, barThickness: 16 }],
     },
     plugins: [pluginValorAlFinal],
     options: {
@@ -3124,7 +3342,7 @@ function renderMinutosTardanza(df) {
         x: {
           title: { display: true, text: "Minutos", font: { family: FUENTE_UI, size: 10 } },
           ticks: { font: { family: FUENTE_MONO, size: 10 } },
-          grid: { color: "#DEDAD0" },
+          grid: { color: "#E4E6EC" },
         },
         y: { ticks: { font: { family: FUENTE_UI, size: 11 }, autoSkip: false }, grid: { display: false } },
       },

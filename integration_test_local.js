@@ -98,6 +98,40 @@ async function main() {
 
   await new Promise((r) => setTimeout(r, 200));
 
+  // --- Verificar la pantalla de bienvenida (paso obligatorio al entrar) ---
+  console.log("=== Verificando pantalla de bienvenida (onboarding) ===");
+  const dashboardOcultoAlInicio = window.document.getElementById("dashboardContent").classList.contains("hidden");
+  const onboardingVisibleAlInicio = !window.document.getElementById("emptyState").classList.contains("hidden");
+  console.log(`dashboardContent oculto al abrir: ${dashboardOcultoAlInicio ? "✅" : "❌"}`);
+  console.log(`Pantalla de bienvenida visible al abrir: ${onboardingVisibleAlInicio ? "✅" : "❌"}`);
+  let todosOkInicial = dashboardOcultoAlInicio && onboardingVisibleAlInicio;
+
+  const elementosOnboarding = [
+    "fileInputOnboarding", "procesarBtnOnboarding", "rutasSheetUrlOnboarding",
+    "sincronizarRutasBtnOnboarding", "fileInputRutasOnboarding", "procesarRutasBtnOnboarding",
+    "siguienteOnboardingBtn", "rutasEstadoOnboarding",
+  ];
+  const faltantes = elementosOnboarding.filter((id) => !window.document.getElementById(id));
+  console.log(`Controles de la pantalla de bienvenida presentes: ${faltantes.length === 0 ? "✅" : "❌ faltan: " + faltantes.join(", ")}`);
+  if (faltantes.length) todosOkInicial = false;
+
+  const chipInicial = window.document.getElementById("rutasEstadoOnboarding").textContent;
+  console.log(`Chip de rutas antes de configurar nada: "${chipInicial}" (esperado "Sin configurar todavía")`);
+  if (chipInicial !== "Sin configurar todavía") todosOkInicial = false;
+
+  // Intentar avanzar sin haber subido nada debe mostrar un aviso, no navegar
+  window.document.getElementById("siguienteOnboardingBtn").click();
+  await new Promise((r) => setTimeout(r, 50));
+  const sigueOcultoDashboard = window.document.getElementById("dashboardContent").classList.contains("hidden");
+  const avisoVisible = !window.document.getElementById("onboardingAviso").classList.contains("hidden");
+  console.log(`"Siguiente" sin datos: dashboard sigue oculto (${sigueOcultoDashboard ? "✅" : "❌"}) y muestra aviso (${avisoVisible ? "✅" : "❌"})`);
+  if (!sigueOcultoDashboard || !avisoVisible) todosOkInicial = false;
+
+  if (!todosOkInicial) {
+    console.log("\n❌ FALLÓ LA VERIFICACIÓN DE LA PANTALLA DE BIENVENIDA — abortando el resto de las pruebas.");
+    process.exit(1);
+  }
+
   // --- Subir el Excel con los 9 casos obligatorios ---
   const bufExcel = fs.readFileSync(path.join(__dirname, "reporte_casos_obligatorios.xlsx"));
   const fakeFile = {
@@ -113,6 +147,18 @@ async function main() {
   console.log("=== Resultado de la carga ===");
   console.log(window.document.getElementById("uploadStatus").textContent);
   console.log(window.document.getElementById("uploadResumen").textContent.replace(/\s+/g, " ").trim());
+
+  // --- Confirmar que subir el Excel NO muestra el dashboard automáticamente
+  //     (paso obligatorio: hace falta pulsar "Siguiente" para continuar) ---
+  const dashboardOcultoTrasSubir = window.document.getElementById("dashboardContent").classList.contains("hidden");
+  console.log(`\ndashboardContent sigue oculto tras subir (antes de pulsar "Siguiente"): ${dashboardOcultoTrasSubir ? "✅" : "❌"}`);
+  if (!dashboardOcultoTrasSubir) todosOk = false;
+
+  window.document.getElementById("siguienteOnboardingBtn").click();
+  await new Promise((r) => setTimeout(r, 200));
+  const dashboardVisibleTrasSiguiente = !window.document.getElementById("dashboardContent").classList.contains("hidden");
+  console.log(`dashboardContent visible tras pulsar "Siguiente": ${dashboardVisibleTrasSiguiente ? "✅" : "❌"}`);
+  if (!dashboardVisibleTrasSiguiente) todosOk = false;
 
   // --- Verificar cada fila de la tabla renderizada contra la tabla obligatoria ---
   const filas = [...window.document.querySelectorAll("#tablaAuditoria > tbody > tr:not(.fila-detalle-ruta)")];
@@ -487,16 +533,18 @@ async function main() {
 
   const textoEmptyState = w2.document.getElementById("emptyStateTexto").textContent;
   console.log(`Texto del empty state menciona datos guardados: ${textoEmptyState.includes("datos guardados")}`);
-  const botonVerHistorialVisible = !w2.document.getElementById("verHistorialBtn").classList.contains("hidden");
-  console.log(`Botón "Ver historial guardado" visible: ${botonVerHistorialVisible} (esperado true)`);
-  if (!botonVerHistorialVisible) todosOk = false;
+  const botonSiguienteExiste = !!w2.document.getElementById("siguienteOnboardingBtn");
+  console.log(`Botón "Siguiente" presente: ${botonSiguienteExiste ? "✅" : "❌"}`);
+  if (!botonSiguienteExiste) todosOk = false;
 
-  // Pulsar el botón debe revelar el dashboard con los datos ya guardados
-  w2.document.getElementById("verHistorialBtn").click();
+  // Pulsar "Siguiente" debe revelar el dashboard con los datos ya guardados
+  // (paso obligatorio confirmado con el usuario: siempre aparece primero,
+  // incluso con datos ya guardados, y solo avanza con una acción explícita).
+  w2.document.getElementById("siguienteOnboardingBtn").click();
   await new Promise((r) => setTimeout(r, 200));
   const dashboardVisibleTrasBoton = !w2.document.getElementById("dashboardContent").classList.contains("hidden");
   const filasTrasBoton = w2.document.querySelectorAll("#tablaAuditoria > tbody > tr:not(.fila-detalle-ruta)").length;
-  console.log(`dashboardContent visible tras pulsar "Ver historial guardado": ${dashboardVisibleTrasBoton} (esperado true)`);
+  console.log(`dashboardContent visible tras pulsar "Siguiente": ${dashboardVisibleTrasBoton} (esperado true)`);
   console.log(`Filas en la tabla tras pulsar el botón: ${filasTrasBoton} (esperado 10)`);
   if (!dashboardVisibleTrasBoton || filasTrasBoton !== 10) todosOk = false;
 

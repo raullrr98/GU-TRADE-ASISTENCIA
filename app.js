@@ -319,15 +319,12 @@ async function procesarExcelCompartido(archivo, ui) {
     const config = await cargarConfiguracion();
     const resumenes = calcularResumen(filas, config);
 
-    // 3a) Si está activada la sincronización automática, intentar traer la
-    //     versión más reciente del catálogo de rutas ANTES de evaluar
-    //     cumplimiento (best-effort: si falla — sin internet, hoja no
-    //     publicada, etc. — se sigue con lo que ya haya guardado localmente).
-    const cfgSync = await dbGetAll("configuracion");
-    const autoSyncActivo = cfgSync.find((c) => c.clave === "rutas_auto_sync")?.valor === "1";
-    if (autoSyncActivo) {
-      await sincronizarRutasCompartido(true, { urlId: "rutasSheetUrl", statusId: "rutasSyncStatus", infoId: "rutasSyncInfo", resumenId: "rutasResumen" });
-    }
+    // 3a) Traer la versión más reciente del catálogo de rutas antes de
+    //     evaluar cumplimiento — siempre, automáticamente, sin que el
+    //     usuario tenga que configurar nada (best-effort: si falla, sin
+    //     internet o la hoja aún no está publicada, se sigue con lo último
+    //     guardado localmente).
+    await sincronizarRutasFija();
 
     // 3b) Aplicar cumplimiento de ruta asignada, si hay un catálogo cargado
     const nombresPorId = new Map(empleadosUnicos.map((e) => [e.id_empleado, e.nombre]));
@@ -400,213 +397,68 @@ async function guardarResumenes(periodo, resumenes) {
 }
 
 // ---------------------------------------------------------------------------
-// INGESTA DEL CATÁLOGO DE RUTAS ASIGNADAS (archivo aparte, no cambia mes a mes)
+// SINCRONIZACIÓN AUTOMÁTICA CON GOOGLE SHEETS (enlace fijo, sin configuración
+// manual del usuario). El sheet queda vinculado permanentemente al tablero:
+// se sincroniza solo al abrir la app y cada vez que se procesa un Excel.
+//
+// ⚠️ IMPORTANTE PARA QUIEN DESPLIEGUE ESTE TABLERO: reemplazar el valor de
+// RUTAS_SHEET_URL_FIJA por el enlace real de exportación CSV de la hoja de
+// rutas PUBLICADA en Google Sheets:
+//   Google Sheets → Archivo → Compartir → Publicar en la web →
+//   elegir la hoja con las rutas por persona → formato CSV → Publicar →
+//   copiar el enlace (termina en "pub?output=csv" o similar).
+// Sin este enlace configurado, el tablero sigue funcionando normalmente
+// (todo se mide igual), solo que ningún colaborador tendrá ruta asignada
+// para evaluar cumplimiento.
 // ---------------------------------------------------------------------------
-let archivoRutasSeleccionado = null;
-let archivoRutasSeleccionadoOnboarding = null;
+const RUTAS_SHEET_URL_FIJA = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRK4wtwFyLxQBqi-kzf_nzzUTNjtnixGUmn2fAGAxQ2RT7cMkLOZ0tQdpCxw4lq_qmNLDIZUoaudId9/pub?output=csv";
 
-document.getElementById("fileInputRutas").addEventListener("change", (e) => {
-  archivoRutasSeleccionado = e.target.files[0] || null;
-  document.getElementById("procesarRutasBtn").disabled = !archivoRutasSeleccionado;
-  document.getElementById("rutasResumen").classList.add("hidden");
-});
-
-document.getElementById("fileInputRutasOnboarding").addEventListener("change", (e) => {
-  archivoRutasSeleccionadoOnboarding = e.target.files[0] || null;
-  document.getElementById("procesarRutasBtnOnboarding").disabled = !archivoRutasSeleccionadoOnboarding;
-  document.getElementById("rutasResumenOnboarding").classList.add("hidden");
-});
-
-document.getElementById("procesarRutasBtn").addEventListener("click", () =>
-  procesarArchivoRutasCompartido(archivoRutasSeleccionado, { statusId: "rutasStatus", resumenId: "rutasResumen" })
-);
-document.getElementById("procesarRutasBtnOnboarding").addEventListener("click", () =>
-  procesarArchivoRutasCompartido(archivoRutasSeleccionadoOnboarding, { statusId: "rutasStatusOnboarding", resumenId: "rutasResumenOnboarding" })
-);
-
-async function procesarArchivoRutasCompartido(archivo, ui) {
-  if (!archivo) return;
-  const statusEl = document.getElementById(ui.statusId);
-  const resumenEl = document.getElementById(ui.resumenId);
-  statusEl.textContent = "Leyendo archivo de rutas...";
-  statusEl.className = "status-msg";
-  resumenEl.classList.add("hidden");
-
-  try {
-    const arrayBuffer = await archivo.arrayBuffer();
-    const { asignaciones, meta } = leerRutasAsignadas(arrayBuffer);
-    await guardarAsignacionesYRecalcular(asignaciones, meta, archivo.name, resumenEl);
-    statusEl.textContent = "Rutas cargadas correctamente.";
-    statusEl.classList.add("ok");
-  } catch (err) {
-    statusEl.textContent = "Error: " + err.message;
-    statusEl.classList.add("error");
-  }
+function urlRutasConfigurada() {
+  return RUTAS_SHEET_URL_FIJA && !RUTAS_SHEET_URL_FIJA.startsWith("PEGAR_AQUI");
 }
 
-// Lógica compartida entre "cargar archivo manual" y "sincronizar en vivo":
-// guarda el catálogo de rutas en IndexedDB y recalcula todo el histórico.
-async function guardarAsignacionesYRecalcular(asignaciones, meta, nombreOrigen, resumenEl) {
-  if (!asignaciones.length) {
-    throw new Error("No se encontraron filas válidas (revisa las columnas de Persona y Punto de venta).");
-  }
-
-  await dbClearStore("rutas_asignadas");
-  await dbPutMany("rutas_asignadas", asignaciones);
-
-  const personasConDia = new Set(asignaciones.filter((a) => a.dias.length).map((a) => a.nombre_normalizado)).size;
-
-  if (resumenEl) {
-    resumenEl.classList.remove("hidden");
-    resumenEl.innerHTML = `
-      <div class="ur-item"><span>Origen</span><strong>${nombreOrigen}</strong></div>
-      <div class="ur-item"><span>Filas procesadas</span><strong>${meta.filasValidas} / ${meta.filasTotalesHoja}</strong></div>
-      <div class="ur-item"><span>Personas con ruta por día</span><strong>${personasConDia}</strong></div>
-      <div class="ur-item"><span>Filas sin día (no se evalúan)</span><strong>${meta.filasSinDia}</strong></div>
-    `;
-  }
-
-  actualizarChipEstadoRutas();
-
-  // Recalcular todo el histórico ya cargado con el nuevo catálogo de rutas
-  await recalcularTodoElHistorico();
-  const dashboardYaVisible = !document.getElementById("dashboardContent").classList.contains("hidden");
-  if (dashboardYaVisible) await refrescarPeriodosYVista();
-}
-
-// ---------------------------------------------------------------------------
-// SINCRONIZACIÓN EN VIVO CON GOOGLE SHEETS
-// ---------------------------------------------------------------------------
-// La URL debe ser el enlace de exportación CSV de una hoja PUBLICADA de
-// Google Sheets (Archivo → Compartir → Publicar en la web → elegir la hoja
-// específica → formato CSV → copiar enlace). Google sirve ese endpoint con
-// cabeceras CORS abiertas, así que se puede leer directo desde el navegador
-// sin backend propio.
-
-// Guarda la URL en config y mantiene sincronizados los DOS campos donde
-// puede vivir (barra lateral y pantalla de bienvenida) — cambiar cualquiera
-// de los dos actualiza el mismo valor guardado.
-async function guardarUrlRutas(valor) {
-  await dbPutMany("configuracion", [{ clave: "rutas_sheet_url", valor: valor.trim() }]);
-  document.getElementById("rutasSheetUrl").value = valor.trim();
-  document.getElementById("rutasSheetUrlOnboarding").value = valor.trim();
-  actualizarChipEstadoRutas();
-}
-document.getElementById("rutasSheetUrl").addEventListener("change", (e) => guardarUrlRutas(e.target.value));
-document.getElementById("rutasSheetUrlOnboarding").addEventListener("change", (e) => guardarUrlRutas(e.target.value));
-
-async function guardarAutoSyncRutas(activo) {
-  await dbPutMany("configuracion", [{ clave: "rutas_auto_sync", valor: activo ? "1" : "0" }]);
-  document.getElementById("rutasAutoSync").checked = activo;
-  document.getElementById("rutasAutoSyncOnboarding").checked = activo;
-}
-document.getElementById("rutasAutoSync").addEventListener("change", (e) => guardarAutoSyncRutas(e.target.checked));
-document.getElementById("rutasAutoSyncOnboarding").addEventListener("change", (e) => guardarAutoSyncRutas(e.target.checked));
-
-// Chip visual ("Sin configurar todavía" / "✓ Configurado") en la pantalla
-// de bienvenida, reflejando datos reales de IndexedDB — nunca información
-// inventada.
-async function actualizarChipEstadoRutas() {
-  const chip = document.getElementById("rutasEstadoOnboarding");
-  if (!chip) return;
-  const asignaciones = await dbGetAll("rutas_asignadas");
-  if (asignaciones.length) {
-    chip.textContent = `✓ Configurado — ${asignaciones.length} fila(s) de ruta`;
-    chip.classList.add("configurado");
-  } else {
-    chip.textContent = "Sin configurar todavía";
-    chip.classList.remove("configurado");
-  }
-}
-
-function textoUltimaSync(fechaISO) {
-  const fecha = new Date(fechaISO);
-  return `Última sincronización: ${fecha.toLocaleDateString("es-ES")} ${fecha.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`;
-}
-
-async function poblarPanelSincronizacionRutas() {
-  const filas = await dbGetAll("configuracion");
-  const cfg = {};
-  filas.forEach((row) => (cfg[row.clave] = row.valor));
-  document.getElementById("rutasSheetUrl").value = cfg.rutas_sheet_url || "";
-  document.getElementById("rutasSheetUrlOnboarding").value = cfg.rutas_sheet_url || "";
-  document.getElementById("rutasAutoSync").checked = cfg.rutas_auto_sync === "1";
-  document.getElementById("rutasAutoSyncOnboarding").checked = cfg.rutas_auto_sync === "1";
-  if (cfg.rutas_ultima_sincronizacion) {
-    document.getElementById("rutasSyncInfo").textContent = textoUltimaSync(cfg.rutas_ultima_sincronizacion);
-    document.getElementById("rutasSyncInfoOnboarding").textContent = textoUltimaSync(cfg.rutas_ultima_sincronizacion);
-  }
-  await actualizarChipEstadoRutas();
+function actualizarFootnoteSyncRutas(texto) {
+  const el = document.getElementById("rutasSyncFootnote");
+  if (el) el.textContent = texto;
 }
 
 /**
- * Descarga la hoja de rutas publicada en Google Sheets (CSV) y actualiza el
- * catálogo local. Se usa tanto para los botones "Sincronizar ahora" (barra
- * lateral y pantalla de bienvenida) como para la sincronización automática
- * al procesar un Excel de marcaciones.
- * @param {boolean} silencioso - si es true, no interrumpe con errores
- *   visibles (usado en la sincronización automática, best-effort).
- * @param {Object} ui - { urlId, statusId, infoId, resumenId }
+ * Descarga la hoja de rutas publicada en Google Sheets (CSV, enlace fijo en
+ * el código) y actualiza el catálogo local. Se llama sola al abrir la app y
+ * después de procesar cada Excel de marcaciones — nunca requiere una acción
+ * manual del usuario.
  */
-async function sincronizarRutasCompartido(silencioso, ui) {
-  const url = document.getElementById(ui.urlId).value.trim();
-  if (!url) {
-    if (!silencioso) throw new Error("Pegá primero el enlace de Google Sheets (CSV).");
+async function sincronizarRutasFija() {
+  if (!urlRutasConfigurada()) {
+    actualizarFootnoteSyncRutas("Rutas asignadas: enlace no configurado (ver app.js)");
     return false;
   }
-
-  const statusEl = document.getElementById(ui.statusId);
-  const resumenEl = document.getElementById(ui.resumenId);
-  if (!silencioso) {
-    statusEl.textContent = "Descargando desde Google Sheets...";
-    statusEl.className = "status-msg";
-  }
-
+  actualizarFootnoteSyncRutas("Rutas asignadas: sincronizando...");
   try {
-    const respuesta = await fetch(url, { cache: "no-store" });
+    const respuesta = await fetch(RUTAS_SHEET_URL_FIJA, { cache: "no-store" });
     if (!respuesta.ok) {
-      throw new Error(
-        `Google Sheets respondió con error ${respuesta.status}. Verificá que la hoja esté publicada (Archivo → Compartir → Publicar en la web).`
-      );
+      throw new Error(`Google Sheets respondió con error ${respuesta.status}`);
     }
     const textoCSV = await respuesta.text();
     const { asignaciones, meta } = leerRutasAsignadasDesdeCSV(textoCSV);
-    await guardarAsignacionesYRecalcular(asignaciones, meta, "Google Sheets (sincronización en vivo)", resumenEl);
+    if (!asignaciones.length) throw new Error("La hoja no tiene filas válidas");
 
-    const ahora = new Date().toISOString();
-    await dbPutMany("configuracion", [{ clave: "rutas_ultima_sincronizacion", valor: ahora }]);
-    document.getElementById("rutasSyncInfo").textContent = textoUltimaSync(ahora);
-    document.getElementById("rutasSyncInfoOnboarding").textContent = textoUltimaSync(ahora);
+    await dbClearStore("rutas_asignadas");
+    await dbPutMany("rutas_asignadas", asignaciones);
+    await recalcularTodoElHistorico();
+    const dashboardYaVisible = !document.getElementById("dashboardContent").classList.contains("hidden");
+    if (dashboardYaVisible) await refrescarPeriodosYVista();
 
-    if (!silencioso) {
-      statusEl.textContent = "Sincronizado correctamente.";
-      statusEl.classList.add("ok");
-    }
+    const ahora = new Date();
+    const horaTexto = ahora.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+    actualizarFootnoteSyncRutas(`Rutas asignadas: sincronizado ${horaTexto} · ${meta.filasValidas} fila(s)`);
     return true;
   } catch (err) {
-    // Un fetch() a un dominio que bloquea CORS falla con un TypeError
-    // genérico ("Failed to fetch"), sin detalle — se aclara para que el
-    // usuario sepa que probablemente falta publicar la hoja correctamente.
-    const mensaje =
-      err.message === "Failed to fetch"
-        ? "No se pudo conectar con Google Sheets. Verificá tu conexión a internet y que la hoja esté publicada como CSV (no solo compartida)."
-        : err.message;
-    if (!silencioso) {
-      statusEl.textContent = "Error: " + mensaje;
-      statusEl.classList.add("error");
-    } else {
-      console.warn("Sincronización automática de rutas falló:", mensaje);
-    }
+    console.warn("No se pudo sincronizar la hoja de rutas:", err.message);
+    actualizarFootnoteSyncRutas("Rutas asignadas: no se pudo sincronizar (se sigue usando lo último guardado)");
     return false;
   }
 }
-
-document.getElementById("sincronizarRutasBtn").addEventListener("click", () =>
-  sincronizarRutasCompartido(false, { urlId: "rutasSheetUrl", statusId: "rutasSyncStatus", infoId: "rutasSyncInfo", resumenId: "rutasResumen" })
-);
-document.getElementById("sincronizarRutasBtnOnboarding").addEventListener("click", () =>
-  sincronizarRutasCompartido(false, { urlId: "rutasSheetUrlOnboarding", statusId: "rutasSyncStatusOnboarding", infoId: "rutasSyncInfoOnboarding", resumenId: "rutasResumenOnboarding" })
-);
 
 // ---------------------------------------------------------------------------
 // SELECTOR DE PERÍODO
@@ -820,6 +672,7 @@ function poblarFiltrosDinamicos(df) {
     if (!document.getElementById("filtroFechaDesde").value) document.getElementById("filtroFechaDesde").value = fechas[0];
     if (!document.getElementById("filtroFechaHasta").value) document.getElementById("filtroFechaHasta").value = fechas[fechas.length - 1];
     document.getElementById("fechaPdf").value = fechas[fechas.length - 1];
+    window.__calSincronizarDesdeInputs?.();
   }
 }
 
@@ -832,6 +685,192 @@ document.getElementById("buscarColaboradorInput").addEventListener("input", () =
   document.getElementById(id).addEventListener("change", () => { paginaActual = 1; aplicarFiltrosYRenderizar(); });
 });
 
+// ---------------------------------------------------------------------------
+// SELECTOR DE CALENDARIO CON RANGO (reemplaza los campos sueltos Desde/Hasta)
+// ---------------------------------------------------------------------------
+function fechaAISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function isoADate(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+// ---------------------------------------------------------------------------
+// MODO OSCURO (persistente, igual patrón que la referencia +Marka)
+// ---------------------------------------------------------------------------
+function inicializarModoOscuro() {
+  const btn = document.getElementById("themeToggleBtn");
+  const icono = document.getElementById("themeIcon");
+  const label = document.getElementById("themeLabel");
+
+  function aplicar(oscuro) {
+    document.body.classList.toggle("tema-oscuro", oscuro);
+    icono.textContent = oscuro ? "☀️" : "🌙";
+    label.textContent = oscuro ? "Modo claro" : "Modo oscuro";
+  }
+
+  const guardado = localStorage.getItem("gu_trade_tema") === "oscuro";
+  aplicar(guardado);
+
+  btn.addEventListener("click", () => {
+    const oscuro = !document.body.classList.contains("tema-oscuro");
+    aplicar(oscuro);
+    localStorage.setItem("gu_trade_tema", oscuro ? "oscuro" : "claro");
+  });
+}
+
+function initCalendario() {
+  const btn = document.getElementById("calBtn");
+  const panel = document.getElementById("calPanel");
+  const inputDesde = document.getElementById("filtroFechaDesde");
+  const inputHasta = document.getElementById("filtroFechaHasta");
+  const labelEl = document.getElementById("calBtnLabel");
+  const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+  const DIAS = ["DO", "LU", "MA", "MI", "JU", "VI", "SA"];
+
+  let viewMonth = new Date();
+  let calStart = null, calEnd = null;
+
+  function actualizarLabel() {
+    if (!calStart) labelEl.textContent = "Todas las fechas";
+    else if (!calEnd || calEnd === calStart) labelEl.textContent = fechaLegible(calStart);
+    else labelEl.textContent = `${fechaLegible(calStart)} → ${fechaLegible(calEnd)}`;
+  }
+
+  function sincronizarInputs() {
+    inputDesde.value = calStart || "";
+    inputHasta.value = calEnd || calStart || "";
+    inputDesde.dispatchEvent(new Event("change"));
+  }
+
+  function render() {
+    const y = viewMonth.getFullYear(), m = viewMonth.getMonth();
+    const primerDia = new Date(y, m, 1);
+    const diasEnMes = new Date(y, m + 1, 0).getDate();
+    const inicioSemana = primerDia.getDay();
+    const hoyISO = fechaAISO(new Date());
+    const lo = calStart && calEnd ? (calStart <= calEnd ? calStart : calEnd) : calStart;
+    const hi = calStart && calEnd ? (calStart <= calEnd ? calEnd : calStart) : calStart;
+
+    let diasHtml = "";
+    for (let i = 0; i < inicioSemana; i++) diasHtml += "<div></div>";
+    for (let d = 1; d <= diasEnMes; d++) {
+      const iso = fechaAISO(new Date(y, m, d));
+      let clase = "cal-day";
+      if (iso === hoyISO) clase += " hoy";
+      if (lo && hi && iso >= lo && iso <= hi) clase += " en-rango";
+      if (iso === lo) clase += " rango-inicio";
+      if (iso === hi) clase += " rango-fin";
+      diasHtml += `<div class="${clase}" data-fecha="${iso}">${d}</div>`;
+    }
+
+    const rangoLabel = calStart ? (calEnd && calEnd !== calStart ? `${calStart} → ${calEnd}` : calStart) : "Todas las fechas";
+    panel.innerHTML = `
+      <div class="cal-presets">
+        <span class="cal-preset" data-preset="hoy">Hoy</span>
+        <span class="cal-preset" data-preset="7">Últimos 7 días</span>
+        <span class="cal-preset" data-preset="15">Últimos 15 días</span>
+        <span class="cal-preset" data-preset="30">Últimos 30 días</span>
+        <span class="cal-preset" data-preset="todo">Todo</span>
+      </div>
+      <div class="cal-head">
+        <button type="button" class="cal-nav" data-nav="-1">‹</button>
+        <span class="cal-month">${MESES[m]} ${y}</span>
+        <button type="button" class="cal-nav" data-nav="1">›</button>
+      </div>
+      <div class="cal-weekdays">${DIAS.map((d) => `<span>${d}</span>`).join("")}</div>
+      <div class="cal-days">${diasHtml}</div>
+      <div class="cal-foot">
+        <span class="cal-range-label"><strong>${rangoLabel}</strong></span>
+        <button type="button" class="btn-ghost btn-small" id="calLimpiarBtn">Limpiar</button>
+      </div>
+    `;
+
+    panel.querySelectorAll(".cal-day[data-fecha]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const iso = el.dataset.fecha;
+        const tieneRangoCompleto = calStart && calEnd;
+        if (!calStart || tieneRangoCompleto) {
+          calStart = iso;
+          calEnd = null;
+        } else if (iso < calStart) {
+          calEnd = calStart;
+          calStart = iso;
+        } else {
+          calEnd = iso;
+        }
+        render();
+        actualizarLabel();
+        sincronizarInputs();
+      });
+    });
+    panel.querySelectorAll(".cal-nav").forEach((el) => {
+      el.addEventListener("click", () => {
+        viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + parseInt(el.dataset.nav, 10), 1);
+        render();
+      });
+    });
+    panel.querySelectorAll(".cal-preset").forEach((el) => {
+      el.addEventListener("click", () => {
+        const p = el.dataset.preset;
+        const hoy = new Date();
+        const hoyIso = fechaAISO(hoy);
+        if (p === "todo") {
+          calStart = null;
+          calEnd = null;
+        } else if (p === "hoy") {
+          calStart = hoyIso;
+          calEnd = hoyIso;
+        } else {
+          const desde = new Date(hoy);
+          desde.setDate(desde.getDate() - (parseInt(p, 10) - 1));
+          calStart = fechaAISO(desde);
+          calEnd = hoyIso;
+        }
+        if (calStart) viewMonth = isoADate(calStart);
+        render();
+        actualizarLabel();
+        sincronizarInputs();
+      });
+    });
+    document.getElementById("calLimpiarBtn").addEventListener("click", () => {
+      calStart = null;
+      calEnd = null;
+      render();
+      actualizarLabel();
+      sincronizarInputs();
+    });
+  }
+
+  btn.addEventListener("click", () => {
+    const abrir = !panel.classList.contains("abierto");
+    panel.classList.toggle("abierto", abrir);
+    btn.classList.toggle("abierto", abrir);
+    if (abrir) render();
+  });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".cal-wrap")) {
+      panel.classList.remove("abierto");
+      btn.classList.remove("abierto");
+    }
+  });
+
+  // Otras funciones (poblarFiltrosDinamicos, "Limpiar filtros") necesitan
+  // poder sincronizar el estado interno del calendario cuando cambian las
+  // fechas por otra vía (ej. al cargar un período nuevo).
+  window.__calSincronizarDesdeInputs = () => {
+    calStart = inputDesde.value || null;
+    calEnd = inputHasta.value || null;
+    actualizarLabel();
+  };
+  window.__calLimpiar = () => {
+    calStart = null;
+    calEnd = null;
+    actualizarLabel();
+  };
+}
+
 document.getElementById("limpiarFiltrosBtn").addEventListener("click", () => {
   msEmpleado.limpiar();
   msEstado.limpiar();
@@ -843,6 +882,7 @@ document.getElementById("limpiarFiltrosBtn").addEventListener("click", () => {
     const fechas = cacheResumen.map((r) => r.fecha).sort();
     document.getElementById("filtroFechaDesde").value = fechas[0];
     document.getElementById("filtroFechaHasta").value = fechas[fechas.length - 1];
+    window.__calSincronizarDesdeInputs?.();
   }
   aplicarFiltrosYRenderizar();
 });
@@ -1006,24 +1046,19 @@ function renderKPIs(df) {
   const puntuales = df.filter((r) => r.clasificacion_puntualidad === ESTADOS.PUNTUAL).length;
   const pctPuntualidad = totalDias ? ((puntuales / totalDias) * 100).toFixed(1) : "0.0";
 
-  const filasTardanza = df.filter((r) => esTardanza(r.clasificacion_puntualidad));
-  const cantidadTardanzas = filasTardanza.length;
-
-  const filasConHoras = df.filter((r) => r.minutos_efectivos !== null && r.minutos_efectivos !== undefined);
-  const promMinutosEfectivos = filasConHoras.length
-    ? filasConHoras.reduce((acc, r) => acc + r.minutos_efectivos, 0) / filasConHoras.length
-    : null;
-  const cantidadJornadaIncompleta = filasConHoras.filter((r) => !r.cumplio_jornada).length;
+  // Cantidad de COLABORADORES distintos con al menos una tardanza en el
+  // período filtrado (no cantidad de eventos): si 10 colaboradores llegaron
+  // tarde alguna vez en el rango de fechas, el valor es 10, aunque alguno
+  // de ellos haya llegado tarde varios días.
+  const colaboradoresConTardanza = new Set(
+    df.filter((r) => esTardanza(r.clasificacion_puntualidad)).map((r) => r.id_empleado)
+  ).size;
 
   const ICONOS = {
     personas: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/><circle cx="17" cy="9" r="2.6"/><path d="M15.8 14.2c2.8.4 5.2 2.4 5.2 5.8"/></svg>',
     check: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9.2"/><path d="m8 12.5 2.6 2.6L16.5 9"/></svg>',
     alerta: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9.2"/><path d="M12 7v6"/><circle cx="12" cy="16.3" r="0.9" fill="currentColor" stroke="none"/></svg>',
-    reloj: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9.2"/><path d="M12 7v5.2l3.6 2.1"/></svg>',
-    salida: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 4H5v16h5"/><path d="M14 8l5 4-5 4"/><path d="M19 12H9"/></svg>',
   };
-
-  const cfg2 = document.getElementById("cfgHorasJornada")?.value || "8";
 
   const kpis = [
     {
@@ -1045,31 +1080,13 @@ function renderKPIs(df) {
       tooltip: "Porcentaje de entradas registradas hasta las 08:10 inclusive, considerando los filtros aplicados. Es un porcentaje, no una cantidad.",
     },
     {
-      titulo: "Cantidad de tardanzas",
-      valor: cantidadTardanzas,
-      unidad: "eventos",
+      titulo: "Cantidad de tardanzas por colaborador",
+      valor: colaboradoresConTardanza,
+      unidad: "colaboradores",
       icono: ICONOS.alerta,
       claseIcono: "kpi-icono-rojo",
-      desc: "Llegadas desde las 08:11.",
-      tooltip: "Número de entradas registradas desde las 08:11 (Tardanza Leve o Tardanza a Supervisar). No representa minutos, representa eventos.",
-    },
-    {
-      titulo: "Horas efectivas",
-      valor: promMinutosEfectivos === null ? "—" : formatHorasTrabajadas(promMinutosEfectivos),
-      unidad: promMinutosEfectivos === null ? "" : "promedio/día",
-      icono: ICONOS.reloj,
-      claseIcono: "kpi-icono-ambar",
-      desc: `Entrada a salida, sin contar el descanso. Jornada obligatoria: ${cfg2} h.`,
-      tooltip: "Promedio de horas efectivas trabajadas por día: diferencia entre el primer check-in y el último check-out, descontando el descanso. Solo considera días con entrada y salida completas (sin marcación abierta).",
-    },
-    {
-      titulo: "Jornada incompleta",
-      valor: cantidadJornadaIncompleta,
-      unidad: "días",
-      icono: ICONOS.salida,
-      claseIcono: cantidadJornadaIncompleta > 0 ? "kpi-icono-rojo" : "kpi-icono-verde",
-      desc: `Días con menos de ${cfg2} h efectivas trabajadas.`,
-      tooltip: "Cantidad de días en los que las horas efectivas trabajadas (entrada a salida, sin contar el descanso) fueron menores a la jornada obligatoria configurada.",
+      desc: "Colaboradores distintos con al menos una llegada tarde (desde las 08:11) en el rango filtrado.",
+      tooltip: "Cuenta colaboradores únicos, no eventos: si 10 colaboradores llegaron tarde alguna vez en el rango de fechas seleccionado, el valor es 10, sin importar cuántas veces llegó tarde cada uno.",
     },
   ];
 
@@ -1293,54 +1310,73 @@ function celdaCobertura(r) {
   return `<span class="tag tag-rojo" title="${tituloFaltantes}">● ${visitadosCount}/${total}</span>`;
 }
 
-// Contenido del desplegable "Ruta del día": si la persona tiene ruta
-// asignada ese día, lista los PDV que DEBÍA visitar con check/cruz y su
-// horario real (si los visitó). Si no tiene ruta asignada, lista los PDV
-// que efectivamente visitó (sin comparar contra nada, tal como se acordó).
+// Contenido del desplegable "Ruta del día": SIEMPRE muestra la línea de
+// tiempo completa del día (PDV + almuerzo/descanso + traslados, en orden
+// cronológico), con minutos por parada. Si la persona tiene ruta asignada
+// ese día, además marca check/cruz en cada PDV esperado y agrega al final
+// los que faltó visitar. Termina con una fila de total de horas del día.
 function filaDetalleRuta(r) {
+  const timeline = r.jornada_detalle || [];
   const tieneRutaAsignada = r.ruta_pdvs_detalle !== null && r.ruta_pdvs_detalle !== undefined;
+  const esperadosNormalizados = tieneRutaAsignada
+    ? new Set((r.ruta_pdvs_esperados || []).map((p) => p.trim().toLowerCase()))
+    : null;
 
-  if (tieneRutaAsignada) {
-    if (!r.ruta_pdvs_detalle.length) {
-      return `<p class="muted small">No hay puntos de venta asignados para este día.</p>`;
-    }
-    const filasDetalle = r.ruta_pdvs_detalle
-      .map(
-        (p) => `
+  if (!timeline.length) {
+    return `<p class="muted small">Sin marcaciones registradas este día.</p>`;
+  }
+
+  const notaRuta = tieneRutaAsignada
+    ? `<p class="muted small">Este colaborador tiene ruta asignada — se marca con ✓/✗ si cumplió cada punto esperado.</p>`
+    : `<p class="muted small">Este colaborador no tiene ruta asignada — se muestra lo que efectivamente hizo en el día, sin evaluar cumplimiento.</p>`;
+
+  const filasTimeline = timeline
+    .map((item) => {
+      let columnaVisito = `<span class="muted">—</span>`;
+      if (tieneRutaAsignada && item.tipo === "PDV") {
+        const esEsperado = esperadosNormalizados.has(item.nombre.trim().toLowerCase());
+        if (esEsperado) columnaVisito = '<span class="check-ok" title="Visitado">✓</span>';
+      }
+      const salidaTexto = item.abierta ? `<span class="tag tag-rojo">Abierta</span>` : (item.salida || "—");
+      return `
       <tr>
-        <td>${p.pdv}</td>
-        <td class="detalle-check">${p.visitado ? '<span class="check-ok" title="Visitado">✓</span>' : '<span class="check-no" title="No visitado">✗</span>'}</td>
-        <td class="mono">${p.entrada || "—"}</td>
-        <td class="mono">${p.abierta ? '<span class="tag tag-rojo">Abierta</span>' : (p.salida || "—")}</td>
-      </tr>`
-      )
-      .join("");
-    return `
-      <table class="detalle-ruta-tabla">
-        <thead><tr><th>Punto de venta asignado</th><th>Visitó</th><th>Entrada</th><th>Salida</th></tr></thead>
-        <tbody>${filasDetalle}</tbody>
-      </table>`;
-  }
-
-  // Sin ruta asignada: se muestra lo que efectivamente visitó, sin evaluar cumplimiento.
-  if (!r.ruta_detalle || !r.ruta_detalle.length) {
-    return `<p class="muted small">Sin ruta asignada para este colaborador y sin visitas registradas este día.</p>`;
-  }
-  const filasVisitas = r.ruta_detalle
-    .map(
-      (p) => `
-    <tr>
-      <td>${p.pdv}</td>
-      <td class="mono">${p.entrada || "—"}</td>
-      <td class="mono">${p.abierta ? '<span class="tag tag-rojo">Abierta</span>' : (p.salida || "—")}</td>
-    </tr>`
-    )
+        <td>${item.nombre}</td>
+        <td class="detalle-check">${columnaVisito}</td>
+        <td class="mono">${item.entrada || "—"}</td>
+        <td class="mono">${salidaTexto}</td>
+        <td class="mono num">${formatMinutos(item.minutos)}</td>
+      </tr>`;
+    })
     .join("");
+
+  // Puntos esperados que directamente NO se visitaron en absoluto ese día
+  // (no aparecen ni siquiera como parada en la línea de tiempo).
+  const filasFaltantes = tieneRutaAsignada
+    ? (r.ruta_pdvs_faltantes || [])
+        .map(
+          (pdv) => `
+      <tr>
+        <td>${pdv}</td>
+        <td class="detalle-check"><span class="check-no" title="No visitado">✗</span></td>
+        <td class="mono">—</td>
+        <td class="mono">—</td>
+        <td class="mono num">—</td>
+      </tr>`
+        )
+        .join("")
+    : "";
+
+  const filaTotal = `
+    <tr class="detalle-total-fila">
+      <td colspan="4"><strong>Total de horas realizadas en el día</strong></td>
+      <td class="mono num"><strong>${formatHorasTrabajadas(r.minutos_trabajados)}</strong></td>
+    </tr>`;
+
   return `
-    <p class="muted small">Este colaborador no tiene ruta asignada — se muestran los puntos de venta que efectivamente visitó.</p>
+    ${notaRuta}
     <table class="detalle-ruta-tabla">
-      <thead><tr><th>Punto de venta visitado</th><th>Entrada</th><th>Salida</th></tr></thead>
-      <tbody>${filasVisitas}</tbody>
+      <thead><tr><th>Punto / Actividad</th><th>Visitó</th><th>Entrada</th><th>Salida</th><th>Minutos</th></tr></thead>
+      <tbody>${filasTimeline}${filasFaltantes}${filaTotal}</tbody>
     </table>`;
 }
 
@@ -1496,12 +1532,15 @@ async function arrancarApp() {
   msEmpleado.onChange(() => { paginaActual = 1; aplicarFiltrosYRenderizar(); });
   msEstado.onChange(() => { paginaActual = 1; aplicarFiltrosYRenderizar(); });
   msPdv.onChange(() => { paginaActual = 1; aplicarFiltrosYRenderizar(); });
+  initCalendario();
+  inicializarModoOscuro();
   const cfg = await cargarConfiguracion();
   limiteDescansoActual = cfg.descansoPermitidoMin;
-  await poblarPanelSincronizacionRutas();
-  // Solo se cargan los períodos disponibles para poblar los selectores; el
-  // dashboard permanece oculto hasta que el usuario suba un Excel, cambie el
-  // período, o pulse "Ver historial guardado".
+  // Sincroniza las rutas asignadas apenas se abre la app (enlace fijo, sin
+  // ninguna acción del usuario) y luego solo carga la lista de períodos
+  // disponibles; el dashboard permanece oculto hasta pulsar "Siguiente" en
+  // la pantalla de bienvenida (paso obligatorio, confirmado con el usuario).
+  await sincronizarRutasFija();
   await refrescarListaDePeriodos();
 }
 

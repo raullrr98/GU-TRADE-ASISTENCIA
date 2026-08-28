@@ -341,8 +341,12 @@ function parsearDiasVisita(valor) {
   if (valor === null || valor === undefined) return [];
   const texto = String(valor).trim();
   if (!texto) return [];
+  // Se separa por cualquier caracter que NO sea una letra (coma, punto,
+  // espacio, punto y coma, barra...) en vez de solo por coma: la hoja real
+  // trae errores de tipeo como "LU,MI.VI" (punto en vez de coma) o
+  // "VI SA" (falta la coma), y de este modo igual se interpretan bien.
   return texto
-    .split(/[,;\/]/)
+    .split(/[^A-Za-zÁÉÍÓÚáéíóúÑñ]+/)
     .map((d) => d.trim().toUpperCase())
     .filter((d) => DIAS_VALIDOS.has(d));
 }

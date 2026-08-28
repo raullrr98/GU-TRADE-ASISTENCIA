@@ -49,30 +49,7 @@
       </div>
     </details>
 
-    <details class="rail-panel">
-      <summary><span class="rail-icon" aria-hidden="true">⚑</span>01b — Rutas asignadas</summary>
-      <div class="rail-body">
-        <p class="small muted">Catálogo opcional (no cambia mes a mes): qué PDV le corresponde a cada colaborador y en qué días de la semana. Los colaboradores sin ruta asignada siguen mostrando lo que efectivamente visitaron, sin evaluar cumplimiento.</p>
-
-        <label class="eyebrow" title="Enlace de exportación CSV de la hoja de rutas publicada en Google Sheets (Archivo → Compartir → Publicar en la web → elegir la hoja → formato CSV → copiar enlace).">Enlace de Google Sheets (CSV)</label>
-        <input type="url" id="rutasSheetUrl" placeholder="https://docs.google.com/spreadsheets/.../pub?output=csv" />
-        <label class="small" style="display:flex; align-items:center; gap:0.4rem; color:#D8D6CC;">
-          <input type="checkbox" id="rutasAutoSync" style="width:auto;" />
-          Sincronizar automáticamente al procesar cada Excel
-        </label>
-        <button id="sincronizarRutasBtn" class="btn-flag">Sincronizar ahora</button>
-        <div id="rutasSyncStatus" class="status-msg" role="status"></div>
-        <div id="rutasSyncInfo" class="small muted"></div>
-
-        <div class="rail-divider">o subí un archivo manualmente</div>
-        <input type="file" id="fileInputRutas" accept=".xlsx" aria-label="Seleccionar archivo de rutas asignadas" />
-        <button id="procesarRutasBtn" class="btn-ghost" disabled>Cargar archivo de rutas</button>
-        <div id="rutasStatus" class="status-msg" role="status"></div>
-        <div id="rutasResumen" class="upload-resumen hidden"></div>
-      </div>
-    </details>
-
-    <details class="rail-panel">
+    <details class="rail-panel" open>
       <summary><span class="rail-icon" aria-hidden="true">⚙</span>02 — Reglas de negocio</summary>
       <div class="rail-body">
         <label class="eyebrow" title="Hora oficial de inicio de jornada, usada como referencia para calcular minutos y estado de puntualidad.">Hora entrada oficial</label>
@@ -123,6 +100,8 @@
     </div>
 
     <button id="borrarDatosBtn" class="btn-text">Borrar todos los datos locales</button>
+    <button id="themeToggleBtn" class="theme-toggle-btn"><span id="themeIcon">🌙</span><span id="themeLabel">Modo oscuro</span></button>
+    <p id="rutasSyncFootnote" class="rail-footnote">Rutas asignadas: sincronizando...</p>
     <p class="rail-footnote">Los datos se guardan solo en este navegador (IndexedDB). No se comparten entre equipos.</p>
   </aside>
 
@@ -150,10 +129,10 @@
       <div class="onboarding-header">
         <div class="empty-mark">＋</div>
         <h2 class="onboarding-titulo">Antes de empezar</h2>
-        <p id="emptyStateTexto" class="onboarding-sub">Subí el Excel de marcaciones del mes y confirmá la hoja de rutas asignadas. Este paso aparece cada vez que abrís el tablero, para asegurar que estés viendo datos actualizados.</p>
+        <p id="emptyStateTexto" class="onboarding-sub">Subí el Excel de marcaciones del mes. Este paso aparece cada vez que abrís el tablero, para asegurar que estés viendo datos actualizados. Las rutas asignadas se sincronizan solas, no hace falta configurar nada.</p>
       </div>
 
-      <div class="onboarding-pasos">
+      <div class="onboarding-pasos onboarding-pasos-unico">
         <div class="onboarding-paso">
           <div class="onboarding-paso-numero">1</div>
           <div class="onboarding-paso-contenido">
@@ -168,30 +147,6 @@
               <div id="uploadStatusOnboarding" class="status-msg" role="status"></div>
             </div>
             <div id="uploadResumenOnboarding" class="upload-resumen hidden"></div>
-          </div>
-        </div>
-
-        <div class="onboarding-paso">
-          <div class="onboarding-paso-numero">2</div>
-          <div class="onboarding-paso-contenido">
-            <h3>Rutas asignadas <span class="muted small">(opcional)</span></h3>
-            <p class="muted small">Se configura una sola vez — a partir de ahí se sincroniza sola. Si ya la configuraste, no hace falta que hagas nada acá.</p>
-            <div id="rutasEstadoOnboarding" class="rutas-estado-chip">Sin configurar todavía</div>
-            <label class="eyebrow">Enlace de Google Sheets (CSV publicado)</label>
-            <input type="url" id="rutasSheetUrlOnboarding" placeholder="https://docs.google.com/spreadsheets/.../pub?output=csv" />
-            <label class="small" style="display:flex; align-items:center; gap:0.4rem;">
-              <input type="checkbox" id="rutasAutoSyncOnboarding" style="width:auto;" />
-              Sincronizar automáticamente al procesar cada Excel
-            </label>
-            <button id="sincronizarRutasBtnOnboarding" class="btn-ghost btn-onboarding-secundario">Sincronizar ahora</button>
-            <div id="rutasSyncStatusOnboarding" class="status-msg" role="status"></div>
-            <div id="rutasSyncInfoOnboarding" class="small muted"></div>
-
-            <div class="rail-divider">o subí un archivo manualmente</div>
-            <input type="file" id="fileInputRutasOnboarding" accept=".xlsx" aria-label="Seleccionar archivo de rutas asignadas" />
-            <button id="procesarRutasBtnOnboarding" class="btn-ghost btn-onboarding-secundario" disabled>Cargar archivo de rutas</button>
-            <div id="rutasStatusOnboarding" class="status-msg" role="status"></div>
-            <div id="rutasResumenOnboarding" class="upload-resumen hidden"></div>
           </div>
         </div>
       </div>
@@ -211,44 +166,20 @@
       </div>
 
       <div id="contenidoFiltrado">
-        <section class="kpi-row" id="kpiRow"></section>
-
-        <section id="atencionRequerida" class="atencion-requerida" aria-live="polite"></section>
-
-        <section class="charts-grid charts-grid-unica">
-          <div class="chart-panel">
-            <h3 class="eyebrow">Colaboradores con más tardanzas</h3>
-            <p class="chart-subtitle muted">Cantidad de llegadas registradas desde las 08:11</p>
-            <canvas id="chartRanking"></canvas>
-          </div>
-        </section>
-
-        <details class="ledger-section detalle-tardanzas">
-          <summary class="eyebrow">Análisis detallado de tardanzas ▾</summary>
-          <div class="chart-panel chart-panel-detalle">
-            <h3 class="eyebrow">Minutos de tardanza por colaborador</h3>
-            <p class="chart-subtitle muted">Minutos acumulados (no es cantidad de eventos)</p>
-            <canvas id="chartMinutosTardanza"></canvas>
-          </div>
-        </details>
-
-        <section class="ledger-section" id="auditoriaToolbar">
-          <h2 class="eyebrow">Auditoría diaria</h2>
-
+        <section class="ledger-section toolbar-superior">
+          <h2 class="eyebrow">Filtros</h2>
           <div class="toolbar-auditoria">
             <div class="filter-item filter-item-rango-fechas">
-              <label class="eyebrow">📅 Rango de fechas</label>
-              <div class="rango-fechas">
-                <div class="rango-fechas-campo">
-                  <span class="rango-fechas-sub">Desde</span>
-                  <input type="date" id="filtroFechaDesde" />
-                </div>
-                <span class="rango-fechas-separador">—</span>
-                <div class="rango-fechas-campo">
-                  <span class="rango-fechas-sub">Hasta</span>
-                  <input type="date" id="filtroFechaHasta" />
-                </div>
+              <label class="eyebrow">Rango de fechas</label>
+              <div class="cal-wrap">
+                <button type="button" class="cal-btn" id="calBtn">
+                  📅 <span id="calBtnLabel">Todas las fechas</span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="cal-panel" id="calPanel"></div>
               </div>
+              <input type="date" id="filtroFechaDesde" class="hidden" />
+              <input type="date" id="filtroFechaHasta" class="hidden" />
             </div>
             <div class="filter-item">
               <label class="eyebrow">Estado</label>
@@ -280,6 +211,31 @@
               <button id="limpiarFiltrosBtn" class="btn-ghost btn-small">Limpiar filtros</button>
             </div>
           </div>
+        </section>
+
+        <section class="kpi-row" id="kpiRow"></section>
+
+        <section id="atencionRequerida" class="atencion-requerida" aria-live="polite"></section>
+
+        <section class="charts-grid charts-grid-unica">
+          <div class="chart-panel">
+            <h3 class="eyebrow">Colaboradores con más tardanzas</h3>
+            <p class="chart-subtitle muted">Cantidad de llegadas registradas desde las 08:11</p>
+            <canvas id="chartRanking"></canvas>
+          </div>
+        </section>
+
+        <details class="ledger-section detalle-tardanzas">
+          <summary class="eyebrow">Análisis detallado de tardanzas ▾</summary>
+          <div class="chart-panel chart-panel-detalle">
+            <h3 class="eyebrow">Minutos de tardanza por colaborador</h3>
+            <p class="chart-subtitle muted">Minutos acumulados (no es cantidad de eventos)</p>
+            <canvas id="chartMinutosTardanza"></canvas>
+          </div>
+        </details>
+
+        <section class="ledger-section" id="auditoriaToolbar">
+          <h2 class="eyebrow">Auditoría diaria</h2>
 
           <div class="table-wrap">
             <table id="tablaAuditoria">

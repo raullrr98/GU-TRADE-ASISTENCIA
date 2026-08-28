@@ -224,6 +224,43 @@ function calcularResumen(filas, config) {
     }
     const pdvsSecuencia = rutaDetalle.map((p) => p.pdv);
 
+    // Secuencia COMPLETA del día (para el desplegable "Ruta del día"): a
+    // diferencia de rutaDetalle (solo PDV, usado para cobertura de ruta),
+    // esta incluye también el almuerzo/descanso y los traslados, en el
+    // orden real en que ocurrieron, cada uno con su horario y minutos.
+    const jornadaCruda = ordenadas.map((f) => {
+      const esDescanso = ACTIVIDADES_DESCANSO.has(norm(f.actividad));
+      const esTraslado = ACTIVIDADES_TRASLADO.has(norm(f.actividad));
+      let tipo = "PDV";
+      let nombre = f.punto_venta || "PDV";
+      if (esDescanso) {
+        tipo = "Descanso";
+        nombre = "Almuerzo / Descanso";
+      } else if (esTraslado) {
+        tipo = "Traslado";
+        nombre = "Traslado";
+      }
+      return {
+        tipo,
+        nombre,
+        entrada: f.hora_inicio,
+        salida: f.hora_salida,
+        minutos: f.tiempo_transcurrido_min || 0,
+        abierta: f.marcacion_abierta,
+      };
+    });
+    const jornadaDetalle = [];
+    for (const item of jornadaCruda) {
+      const anterior = jornadaDetalle[jornadaDetalle.length - 1];
+      if (anterior && anterior.tipo === item.tipo && anterior.nombre === item.nombre) {
+        anterior.minutos += item.minutos;
+        anterior.salida = item.salida;
+        anterior.abierta = item.abierta;
+      } else {
+        jornadaDetalle.push({ ...item });
+      }
+    }
+
     // Horas trabajadas en el día: desde el primer check-in hasta el último
     // check-out (bruto), y horas EFECTIVAS descontando el descanso, que es
     // lo que se compara contra la jornada obligatoria (por defecto 8 h) para
@@ -287,6 +324,7 @@ function calcularResumen(filas, config) {
       pdvs_secuencia: pdvsSecuencia,
       pdvs_ids_visitados: [...pdvsIdsVisitados],
       ruta_detalle: rutaDetalle,
+      jornada_detalle: jornadaDetalle,
       minutos_trabajados: minutosTrabajados,
       minutos_efectivos: minutosEfectivos,
       cumplio_jornada: cumplioJornada,
@@ -398,6 +436,7 @@ function evaluarCumplimientoRuta(resumenes, asignaciones, nombresPorIdEmpleado) 
         visitado,
         entrada: parada ? parada.entrada : null,
         salida: parada && !parada.abierta ? parada.salida : null,
+        minutos: parada ? parada.minutos : null,
         abierta: parada ? !!parada.abierta : false,
       });
     }

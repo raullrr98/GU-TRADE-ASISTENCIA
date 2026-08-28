@@ -87,6 +87,17 @@ async function main() {
   window.alert = () => {};
   window.confirm = () => true;
 
+  // Mock de fetch() activo desde el arranque: ahora la sincronización de
+  // rutas es automática (URL fija en el código), así que hay que simular
+  // la respuesta de Google Sheets desde antes de que arrancarApp() corra
+  // por primera vez (ya que se sincroniza sola al abrir la app).
+  const CSV_RUTAS_TEST =
+    "Cliente,Persona de Interes,Punto de venta,VISITA,IDENTIFICADOR\n" +
+    "Cliente A,Empleado 0759,Tienda Centro,SA,PDV0001\n" +
+    "Cliente A,Empleado 0800,Farmacia Norte,SA,PDV0002\n" +
+    "Cliente B,Empleado 0805,Tienda Centro,,PDV0001\n";
+  window.fetch = async () => ({ ok: true, status: 200, text: async () => CSV_RUTAS_TEST });
+
   // Ahora sí, cargar app.js (comparte el scope léxico de los <script> ya
   // parseados porque runScripts:"dangerously" ejecuta cada <script> que se
   // inyecte de la misma forma que un navegador real).
@@ -104,18 +115,20 @@ async function main() {
   console.log(`Pantalla de bienvenida visible al abrir: ${onboardingVisibleAlInicio ? "✅" : "❌"}`);
   let todosOkInicial = dashboardOcultoAlInicio && onboardingVisibleAlInicio;
 
-  const elementosOnboarding = [
-    "fileInputOnboarding", "procesarBtnOnboarding", "rutasSheetUrlOnboarding",
-    "sincronizarRutasBtnOnboarding", "fileInputRutasOnboarding", "procesarRutasBtnOnboarding",
-    "siguienteOnboardingBtn", "rutasEstadoOnboarding",
-  ];
+  const elementosOnboarding = ["fileInputOnboarding", "procesarBtnOnboarding", "siguienteOnboardingBtn"];
   const faltantes = elementosOnboarding.filter((id) => !window.document.getElementById(id));
   console.log(`Controles de la pantalla de bienvenida presentes: ${faltantes.length === 0 ? "✅" : "❌ faltan: " + faltantes.join(", ")}`);
   if (faltantes.length) todosOkInicial = false;
 
-  const chipInicial = window.document.getElementById("rutasEstadoOnboarding").textContent;
-  console.log(`Chip de rutas antes de configurar nada: "${chipInicial}" (esperado "Sin configurar todavía")`);
-  if (chipInicial !== "Sin configurar todavía") todosOkInicial = false;
+  // Confirmar que la sección de rutas asignadas (configuración manual) ya
+  // NO existe — ahora el sheet está vinculado de forma fija en el código.
+  const elementosEliminados = [
+    "fileInputRutas", "procesarRutasBtn", "rutasSheetUrl", "rutasAutoSync", "sincronizarRutasBtn",
+    "rutasSheetUrlOnboarding", "sincronizarRutasBtnOnboarding", "fileInputRutasOnboarding", "procesarRutasBtnOnboarding",
+  ];
+  const siguenExistiendo = elementosEliminados.filter((id) => window.document.getElementById(id));
+  console.log(`Controles manuales de rutas correctamente eliminados: ${siguenExistiendo.length === 0 ? "✅" : "❌ siguen existiendo: " + siguenExistiendo.join(", ")}`);
+  if (siguenExistiendo.length) todosOkInicial = false;
 
   // Intentar avanzar sin haber subido nada debe mostrar un aviso, no navegar
   window.document.getElementById("siguienteOnboardingBtn").click();
@@ -208,8 +221,8 @@ async function main() {
   // --- Verificar KPIs: cantidad de tardanzas debe ser 5 (08:11, 08:20, 08:29, 08:30, 09:00) ---
   const kpiValores = [...window.document.querySelectorAll("#kpiRow .kpi-value")].map((el) => el.textContent.trim().replace(/\s+/g, " "));
   console.log(`\nKPIs (valores): ${kpiValores.join(" | ")}`);
-  const cantidadTardanzasOk = kpiValores[2] === "5 eventos";
-  console.log(`Cantidad de tardanzas = "5 eventos": ${cantidadTardanzasOk ? "✅" : "❌ obtuvo " + kpiValores[2]}`);
+  const cantidadTardanzasOk = kpiValores[2] === "5 colaboradores";
+  console.log(`Cantidad de tardanzas por colaborador = "5 colaboradores": ${cantidadTardanzasOk ? "✅" : "❌ obtuvo " + kpiValores[2]}`);
   if (!cantidadTardanzasOk) todosOk = false;
 
   // --- Verificar que no hay texto sin unidad tipo un numero suelto en celda de minutos ---
@@ -248,20 +261,7 @@ async function main() {
 
   // --- Probar exportación a Excel (no debe lanzar errores) ---
   // --- Probar carga de rutas asignadas y cumplimiento de cobertura ---
-  console.log("\n=== Probando rutas asignadas y cobertura ===");
-  const bufRutas = fs.readFileSync(path.join(__dirname, "reporte_rutas_asignadas.xlsx"));
-  const fakeFileRutas = {
-    name: "reporte_rutas_asignadas.xlsx",
-    arrayBuffer: async () => new window.Uint8Array(bufRutas).buffer,
-  };
-  const fileInputRutas = window.document.getElementById("fileInputRutas");
-  Object.defineProperty(fileInputRutas, "files", { value: [fakeFileRutas], writable: false });
-  fileInputRutas.dispatchEvent(new window.Event("change"));
-  window.document.getElementById("procesarRutasBtn").click();
-  await new Promise((r) => setTimeout(r, 400));
-
-  console.log("Estado de carga de rutas:", window.document.getElementById("rutasStatus").textContent);
-
+  console.log("\n=== Probando cobertura de ruta (sincronizada automáticamente al arrancar) ===");
   const filasTrasRutas = [...window.document.querySelectorAll("#tablaAuditoria > tbody > tr:not(.fila-detalle-ruta)")];
   const buscarCobertura = (nombre) => {
     const fila = filasTrasRutas.find((tr) => tr.querySelector(".td-nombre").textContent.includes(nombre));
@@ -310,13 +310,33 @@ async function main() {
   if (detalleRow0800.classList.contains("hidden")) todosOk = false;
 
   // Empleado 0800 tiene ruta asignada (Farmacia Norte, sábados) que NO cumplió
-  // (solo visitó Tienda Centro) -> debe verse la cruz ✗ y "Farmacia Norte" sin horario.
+  // (solo visitó Tienda Centro). El detalle ahora es la línea de tiempo
+  // completa del día (PDV + Almuerzo/Descanso) + el PDV faltante al final +
+  // la fila de total: 2 paradas de Tienda Centro + 1 Almuerzo + 1 Farmacia
+  // Norte (faltante, con cruz) + 1 Total = 5 filas.
   const filasDetalle0800 = detalleRow0800.querySelectorAll(".detalle-ruta-tabla tbody tr");
-  console.log(`Filas del detalle de Empleado 0800: ${filasDetalle0800.length} (esperado 1: Farmacia Norte)`);
-  const textoFila0800 = filasDetalle0800[0]?.textContent || "";
-  const tieneCruz = !!filasDetalle0800[0]?.querySelector(".check-no");
-  console.log(`Detalle contiene "Farmacia Norte" con cruz de no visitado: ${textoFila0800.includes("Farmacia Norte") && tieneCruz ? "✅" : "❌"}`);
-  if (!textoFila0800.includes("Farmacia Norte") || !tieneCruz) todosOk = false;
+  console.log(`Filas del detalle de Empleado 0800: ${filasDetalle0800.length} (esperado 5)`);
+  if (filasDetalle0800.length !== 5) todosOk = false;
+
+  const textoCompleto0800 = detalleRow0800.textContent;
+  const tieneAlmuerzo0800 = textoCompleto0800.includes("Almuerzo");
+  console.log(`El detalle incluye el almuerzo como una parada más: ${tieneAlmuerzo0800 ? "✅" : "❌"}`);
+  if (!tieneAlmuerzo0800) todosOk = false;
+
+  const filaFarmacia0800 = [...filasDetalle0800].find((tr) => tr.textContent.includes("Farmacia Norte"));
+  const tieneCruzFarmacia = !!filaFarmacia0800?.querySelector(".check-no");
+  console.log(`Detalle contiene "Farmacia Norte" con cruz de no visitado: ${tieneCruzFarmacia ? "✅" : "❌"}`);
+  if (!tieneCruzFarmacia) todosOk = false;
+
+  const filaTotal0800 = [...filasDetalle0800].find((tr) => tr.textContent.includes("Total de horas realizadas"));
+  console.log(`El detalle termina con el total de horas del día: ${!!filaTotal0800 ? "✅" : "❌"} (${filaTotal0800?.textContent.trim()})`);
+  if (!filaTotal0800) todosOk = false;
+
+  // Verificar que cada parada (excepto el almuerzo/faltante) tenga su columna de minutos
+  const filaPrimerTramo0800 = filasDetalle0800[0];
+  const tieneMinutos0800 = filaPrimerTramo0800.textContent.includes("240 min") || filaPrimerTramo0800.textContent.includes("4 h");
+  console.log(`La primera parada muestra los minutos que estuvo ahí: ${tieneMinutos0800 ? "✅" : "❌"} (${filaPrimerTramo0800.textContent.trim().replace(/\s+/g, " ")})`);
+  if (!tieneMinutos0800) todosOk = false;
 
   // Empleado 0759 SÍ cumplió su ruta (Tienda Centro) -> debe verse el check ✓ con horario real
   const filaEmpleado0759 = filasTrasRutas.find((tr) => tr.querySelector(".td-nombre").textContent.includes("Empleado 0759"));
@@ -342,46 +362,37 @@ async function main() {
   console.log(`Empleado 0810 — sin columna de check (no hay nada que comparar): ${sinChecks0810 ? "✅" : "❌"}`);
   if (!sinChecks0810) todosOk = false;
 
-  console.log("\n=== Probando sincronización en vivo de rutas (Google Sheets) ===");
-  const csvSimulado =
+  console.log("\n=== Probando sincronización automática con Google Sheets (URL fija) ===");
+  const footnoteTrasArranque = window.document.getElementById("rutasSyncFootnote").textContent;
+  console.log(`Pie de página de sincronización: "${footnoteTrasArranque}" (esperado que mencione "sincronizado")`);
+  if (!footnoteTrasArranque.includes("sincronizado")) todosOk = false;
+
+  // Cambiar la respuesta simulada de Google Sheets y volver a llamar a la
+  // sincronización automática (como pasaría al procesar un nuevo Excel):
+  // ahora Empleado 0810 debería tener ruta asignada (antes no tenía ninguna).
+  const csvActualizado =
     "Cliente,Persona de Interes,Punto de venta,VISITA,IDENTIFICADOR\n" +
     "Cliente A,Empleado 0810,Tienda Centro,SA,PDV0001\n";
-  window.fetch = async (url) => ({
-    ok: true,
-    status: 200,
-    text: async () => csvSimulado,
-  });
-  window.document.getElementById("rutasSheetUrl").value = "https://docs.google.com/fake/pub?output=csv";
-  window.document.getElementById("rutasSheetUrl").dispatchEvent(new window.Event("change"));
-  window.document.getElementById("sincronizarRutasBtn").click();
-  await new Promise((r) => setTimeout(r, 300));
+  window.fetch = async () => ({ ok: true, status: 200, text: async () => csvActualizado });
+  await window.sincronizarRutasFija();
+  await new Promise((r) => setTimeout(r, 100));
 
-  const syncStatusTexto = window.document.getElementById("rutasSyncStatus").textContent;
-  console.log(`Estado de sincronización: "${syncStatusTexto}" (esperado que incluya "correctamente")`);
-  if (!syncStatusTexto.includes("correctamente")) todosOk = false;
-
-  const syncInfoTexto = window.document.getElementById("rutasSyncInfo").textContent;
-  console.log(`Info de última sincronización: "${syncInfoTexto}" (debe mencionar una fecha)`);
-  if (!syncInfoTexto.includes("Última sincronización")) todosOk = false;
-
-  // El nuevo catálogo (sincronizado) reemplaza al anterior (subido manualmente):
-  // ahora Empleado 0810 SÍ tiene ruta asignada (antes no tenía ninguna).
   const filasTrasSync = [...window.document.querySelectorAll("#tablaAuditoria > tbody > tr:not(.fila-detalle-ruta)")];
   const cobertura0810TrasSync = filasTrasSync
     .find((tr) => tr.querySelector(".td-nombre").textContent.includes("Empleado 0810"))
     ?.querySelectorAll("td")[11]?.textContent.trim();
-  console.log(`Empleado 0810 tras sincronizar — Cobertura de ruta: "${cobertura0810TrasSync}" (esperado "● 1/1")`);
+  console.log(`Empleado 0810 tras re-sincronizar — Cobertura de ruta: "${cobertura0810TrasSync}" (esperado "● 1/1")`);
   if (cobertura0810TrasSync !== "● 1/1") todosOk = false;
 
-  // --- Probar manejo de error de red en la sincronización ---
+  // --- Probar manejo de error de red en la sincronización automática ---
   window.fetch = async () => {
     throw new Error("Failed to fetch");
   };
-  window.document.getElementById("sincronizarRutasBtn").click();
-  await new Promise((r) => setTimeout(r, 200));
-  const syncErrorTexto = window.document.getElementById("rutasSyncStatus").textContent;
-  console.log(`Estado tras fallo de red simulado: "${syncErrorTexto}" (esperado que incluya "Error")`);
-  if (!syncErrorTexto.includes("Error")) todosOk = false;
+  await window.sincronizarRutasFija();
+  await new Promise((r) => setTimeout(r, 100));
+  const footnoteTrasError = window.document.getElementById("rutasSyncFootnote").textContent;
+  console.log(`Pie de página tras fallo de red simulado: "${footnoteTrasError}" (esperado que incluya "no se pudo")`);
+  if (!footnoteTrasError.includes("no se pudo")) todosOk = false;
 
   console.log("\n=== Probando exportación a Excel ===");
   window.Blob = function (parts) { this.parts = parts; };
